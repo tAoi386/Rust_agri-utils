@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.save_status = label('自动保存到软件内', 'muted')
         self.statusBar().addWidget(self.save_status, 1)
-        self.author_label = QLabel('作者 Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>')
+        self.author_label = QLabel('作者 i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>')
         self.author_label.setOpenExternalLinks(True)
         self.statusBar().addPermanentWidget(self.author_label)
         self.open_action = QAction('打开软件内项目', self)

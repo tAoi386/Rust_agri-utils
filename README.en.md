@@ -1,12 +1,18 @@
-# Rust Growing Toolkit
-
-**V3.0.0 · Windows desktop application**
-
 [简体中文](README.md) · [English](README.en.md) · [Русский](README.ru.md)
 
-Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **Tao** · [2027883286@qq.com](mailto:2027883286@qq.com).
+# Rust Growing Toolkit
+
+**V3.0.1 · Windows desktop application**
+
+Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com).
+
+## Commercial use
+
+Commercial use of this software is not permitted without permission from its author, i386tAo. For commercial authorization, contact [2027883286@qq.com](mailto:2027883286@qq.com). See [LICENSE.md](LICENSE.md) for the notice in all three languages.
 
 ## Getting started
+
+**[Download the Windows portable build](https://github.com/tAoi386/Rust_agri-utils/releases/latest)**: select `Rust_agri-utils-Windows-v*.zip` on the release page, extract it and run the included `RustSeedLab.exe`.
 
 Repository: [tAoi386/Rust_agri-utils](https://github.com/tAoi386/Rust_agri-utils). **Code → Download ZIP** on GitHub downloads the source. Extract it into `Rust_agri-utils`, prepare Python as described below and run `launch.bat`. Alternatively, clone the repository:
 
@@ -18,9 +24,23 @@ cd Rust_agri-utils
 
 If a portable build already exists locally, run **`启动种养殖工具.bat`**; the previous `启动苗圃.bat` launcher remains compatible. Within the source tree, the executable lives at `dist\capture\RustSeedLab\RustSeedLab.exe`. If you have a portable archive, extract it and run the included `RustSeedLab.exe` directly. Copy the entire `RustSeedLab` folder when moving it to another computer. The portable build does not require Python.
 
+Administrator privileges are usually unnecessary. If the program does not start, you can try right-clicking it and selecting **Run as administrator**.
+
 The interface supports **Simplified Chinese, English and Russian**. Use the application's New Project and Open Project actions to manage projects. Changes save automatically; there is no need to choose a save folder. Save Now writes the current work immediately.
 
 Each project contains one crop. Enter known six-letter genes, names and the number of clones actually available. Grow unknown seeds in the game before recording their genes. Seed numbers remain consistent across both breeding pages. The default goal is **3G3Y in any order**: both `GGYYYG` and `YGYGYG` qualify. Exact gene order is also available.
+
+## Interface preview
+
+These screenshots use anonymous demonstration data and show sequential and parallel breeding. Predictions describe the plan; actual game results still need verification after each round or batch.
+
+**Sequential breeding**
+
+![Sequential breeding with anonymous example data](resources/screenshots/sequential-en.png)
+
+**Parallel breeding**
+
+![Parallel breeding with anonymous example data](resources/screenshots/parallel-en.png)
 
 ## Two breeding modes
 
@@ -45,6 +65,8 @@ All planters in a batch share the same real inventory. One plant cannot be alloc
 Parallel planters can prepare intermediate clones together, but three planters do not guarantee a two-batch solution. Estimated batches describe dependencies, not elapsed minutes or the shortest possible growth time. Feasibility depends on the genes, quantities, expected clone yield and search scope.
 
 ## Recognition and inventory
+
+**Before starting gene recognition, switch Rust to windowed mode and keep the gene details visible, with all six gene letters fully displayed.**
 
 Read Genes from Game processes the gene information currently visible on the screen; it does not require a recorded video. The main window hides during capture and returns when capture ends. The default view looks for the item details near the screen center. You can adjust the region or import an image. Show all six genes, wait for confirmation, move to the next plant, then review the recognized list before importing it.
 

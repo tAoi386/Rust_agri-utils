@@ -1,12 +1,18 @@
-# Rust 种养殖小工具
-
-**Rust Growing Toolkit · V3.0.0 · Windows 桌面版**
-
 [简体中文](README.md) · [English](README.en.md) · [Русский](README.ru.md)
 
-根据已有克隆苗的六位基因和实际数量，寻找《Rust》配种路线。支持顺序培育、多箱并行培育、屏幕基因识别和软件内项目自动保存。作者：**Tao** · [2027883286@qq.com](mailto:2027883286@qq.com)。
+# Rust 种养殖小工具
+
+**Rust Growing Toolkit · V3.0.1 · Windows 桌面版**
+
+根据已有克隆苗的六位基因和实际数量，寻找《Rust》配种路线。支持顺序培育、多箱并行培育、屏幕基因识别和软件内项目自动保存。作者：**i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com)。
+
+## 商业使用
+
+未经作者 i386tAo 许可，不得将本软件用于商业用途。商业授权请联系 [2027883286@qq.com](mailto:2027883286@qq.com)。三语声明见 [LICENSE.md](LICENSE.md)。
 
 ## 开始使用
+
+**[下载 Windows 便携版](https://github.com/tAoi386/Rust_agri-utils/releases/latest)**：在发行版页面选择 `Rust_agri-utils-Windows-v*.zip`，解压后运行其中的 `RustSeedLab.exe`。
 
 项目仓库：[tAoi386/Rust_agri-utils](https://github.com/tAoi386/Rust_agri-utils)。在 GitHub 选择 **Code → Download ZIP** 可下载源码；解压到 `Rust_agri-utils` 目录，按下文准备 Python 后运行 `launch.bat`。也可以克隆仓库：
 
@@ -18,9 +24,23 @@ cd Rust_agri-utils
 
 本地已经构建便携版时，双击 **`启动种养殖工具.bat`**；旧入口 `启动苗圃.bat` 保留兼容。源码目录中的程序路径为 `dist\capture\RustSeedLab\RustSeedLab.exe`。如果拿到的是便携压缩包，解压后直接运行其中的 `RustSeedLab.exe`；复制到其他电脑时保留整个 `RustSeedLab` 文件夹。便携版不需要安装 Python。
 
+通常无需管理员权限；若无法启动，可尝试右键选择“以管理员身份运行”。
+
 程序支持 **简体中文、English、Русский** 界面切换。日常使用“新建项目”“打开项目”管理软件内项目，修改会自动保存，无需选择保存文件夹。“立即保存”可主动保存当前内容。
 
 一个项目使用一种作物。录入已知六位基因、实际可用的克隆数量和名称；普通未知种子先在游戏里种下查看基因。苗号在两个培育页面中保持一致。默认目标为 **3G3Y，顺序不限**，例如 `GGYYYG`、`YGYGYG` 都符合；也可设置固定顺序目标。
+
+## 界面预览
+
+以下截图使用匿名演示数据，分别展示顺序培育和多线培育。图中的预测是规划结果，仍需在游戏中逐轮或逐批核对实测。
+
+**顺序培育**
+
+![顺序培育界面：匿名演示](resources/screenshots/sequential-zh_CN.png)
+
+**多线培育**
+
+![多线培育界面：匿名演示](resources/screenshots/parallel-zh_CN.png)
 
 ## 两种培育方式
 
@@ -45,6 +65,8 @@ cd Rust_agri-utils
 多箱可以并行准备中间苗，但不保证“三箱必定两批达标”。预计批数是方案的依赖批次，不是分钟计时，也不承诺实际成熟时间最短。是否能合成目标，取决于已录入的基因、数量、预计克隆产出和搜索范围。
 
 ## 识别与库存
+
+**开始基因识别前，请将 Rust 切换为窗口模式，并保持基因详情可见，完整显示六位基因字母。**
 
 “从游戏读取基因”读取当前屏幕的基因画面，无需录制视频。读取期间主窗口隐藏，结束后展开。默认查找屏幕中间的物品详情；需要时可调整范围或导入截图。将游戏物品的六位基因完整显示，等待确认后再换下一株，最后核对识别列表再入库。
 

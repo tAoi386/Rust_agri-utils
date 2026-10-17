@@ -75,7 +75,7 @@ class DesktopShellTests(unittest.TestCase):
         self.assertEqual([self.window.workspaces.tabText(i) for i in range(2)], ['顺序培育', '多线培育'])
         self.assertIn('Rust 种养殖小工具 V', self.window.windowTitle())
         self.assertNotIn('苗圃', self.window.windowTitle())
-        self.assertIn('作者 Tao', self.window.author_label.text())
+        self.assertIn('作者 i386tAo', self.window.author_label.text())
         self.assertIn('2027883286@qq.com', self.window.author_label.text())
         self.assertEqual((self.window.width(), self.window.height()), (1280, 800))
         self.assertFalse(hasattr(self.window, '_legacy_workspace'))

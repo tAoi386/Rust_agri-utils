@@ -21,9 +21,10 @@ def package_release():
     if not isinstance(checked, dict) or checked.get("ok") is not True or checked.get("version") != expected_version:
         raise SystemExit(f"Rebuild and run RustSeedLab.exe --smoke-test for version {expected_version} first.")
     ARTIFACTS.mkdir(exist_ok=True)
-    for name in ('README.md', 'README.en.md', 'README.ru.md'):
+    for name in ('README.md', 'README.en.md', 'README.ru.md', 'LICENSE.md'):
         shutil.copy2(ROOT / name, PACKAGE / name)
     shutil.copytree(ROOT / "examples", PACKAGE / "examples", dirs_exist_ok=True)
+    shutil.copytree(ROOT / "resources" / "screenshots", PACKAGE / "resources" / "screenshots", dirs_exist_ok=True)
     notices = PACKAGE / "third-party-notices"
     notices.mkdir(exist_ok=True)
     for name in ("pyside6_essentials", "shiboken6"):
@@ -41,8 +42,11 @@ def package_release():
         for source in sorted(PACKAGE.rglob("*")):
             relative = source.relative_to(PACKAGE)
             packaged = (relative.parts[0] in ("_internal", "third-party-notices")
-                        or relative.as_posix() in ("RustSeedLab.exe", "README.md", "README.en.md", "README.ru.md")
+                        or relative.as_posix() in ("RustSeedLab.exe", "README.md", "README.en.md", "README.ru.md", "LICENSE.md")
                         or relative.as_posix() in ("examples/beginner.json", "examples/parallel.json")
+                        or (relative.parts[:2] == ('resources', 'screenshots') and source.name in {
+                            f'{mode}-{language}.png' for mode in ('sequential', 'parallel')
+                            for language in ('zh_CN', 'en', 'ru')})
                         or (relative.parts[0] == "artifacts" and (source.name == 'packaged-check.json'
                             or source.name == 'packaged-history.png'
                             or source.name in {f'packaged-{mode}-{language}.png'
@@ -51,7 +55,7 @@ def package_release():
             if source.is_file() and packaged:
                 archive.write(source, source.relative_to(PACKAGE.parent))
     includes = ["rust_breeder", "tests", "tools", "resources", "examples"]
-    source_files = [ROOT / name for name in ("main.py", "README.md", "README.en.md", "README.ru.md",
+    source_files = [ROOT / name for name in ("main.py", "README.md", "README.en.md", "README.ru.md", "LICENSE.md",
                     "requirements.txt", "launch.bat", "build.bat", "RustSeedLab.spec",
                     "启动种养殖工具.bat", "启动苗圃.bat", ".gitignore")]
     for directory in includes:

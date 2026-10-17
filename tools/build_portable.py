@@ -55,6 +55,11 @@ def promote_portable(stage, destination, *, root=ROOT, migration=None):
             else:
                 shutil.copy2(source, stage / source.name)
     shutil.copy2(root / "README.md", stage / "README.md")
+    for name in ('README.en.md', 'README.ru.md', 'LICENSE.md'):
+        if (root / name).is_file():
+            shutil.copy2(root / name, stage / name)
+    if (root / 'resources/screenshots').is_dir():
+        shutil.copytree(root / 'resources/screenshots', stage / 'resources/screenshots', dirs_exist_ok=True)
     shutil.copytree(root / "examples", stage / "examples", dirs_exist_ok=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
     backup = None

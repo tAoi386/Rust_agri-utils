@@ -295,7 +295,7 @@ _ENTRIES += [
 
 _TEMPLATE_ENTRIES = [
     ("Rust 种养殖小工具 V{version}", "Rust Growing Toolkit V{version}", "Rust: инструменты выращивания V{version}"),
-    ('作者 Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'By Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'Автор Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>'),
+    ('作者 i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'By i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'Автор i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>'),
     ("软件内项目 · {name}", "Local project · {name}", "Локальный проект · {name}"),
     ("项目恢复未完成：{detail}", "Project restore incomplete: {detail}", "Проект восстановлен не полностью: {detail}"),
     ("自动保存失败：{detail}", "Autosave failed: {detail}", "Ошибка автосохранения: {detail}"),
@@ -613,7 +613,7 @@ _TEMPLATE_ENTRIES += [
 
 _ENTRIES += [
     ("语言", "Language", "Язык"),
-    ('作者 Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'By Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'Автор Tao · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>'),
+    ('作者 i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'By i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>', 'Автор i386tAo · <a href="mailto:2027883286@qq.com">2027883286@qq.com</a>'),
     ("并列基因；查看逐位解释", "Tied genes; inspect each position", "Равные веса генов; проверьте позиции"),
     ("每轮必须恰好有一株中央苗。", "Each round must have exactly one center plant.", "В каждом раунде должно быть ровно одно центральное растение."),
     ("供体记录必须按库存编号合并。", "Donor records must be grouped by stock ID.", "Записи доноров должны быть объединены по номеру запаса."),
