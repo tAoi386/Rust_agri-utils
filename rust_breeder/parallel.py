@@ -9,7 +9,7 @@ batches; dependencies can never consume outputs from the same batch.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import islice, product
 from random import Random
 from time import monotonic
@@ -86,6 +86,34 @@ def _schedule(final, catalog, box_count, main_box, clone_yield, max_waves):
         steps = tuple(ParallelStep(box, node.recipe, node.genes, node.id, clone_yield)
                       for box, node in zip(available, group))
         waves.append(ParallelWave(number, steps))
+    return tuple(waves)
+
+
+def _sequential_waves(steps, inventory, main_box):
+    """Rebind a sequential fallback to this stock snapshot's output namespace.
+
+    A new route search restarts its relative output numbers at one. Reusing
+    those short IDs after their clones were consumed would collide with this
+    parallel journey's completed history on a later batch. Every downstream
+    ingredient reference must be renamed together with its producer.
+    """
+    prefix = 'parallel-' + _fingerprint(inventory)[:12] + '-route-'
+    occupied = {row.id for row in inventory}
+    references = {}
+    waves = []
+    for number, step in enumerate(steps, 1):
+        output_id = f'{prefix}{number}'
+        while output_id in occupied:
+            output_id += '_'
+        center = replace(step.recipe.center,
+                         id=references.get(step.recipe.center_id, step.recipe.center_id))
+        donors = tuple(replace(row, id=references.get(row.id, row.id))
+                       for row in step.recipe.donors)
+        recipe = replace(step.recipe, center=center, donors=donors)
+        waves.append(ParallelWave(number, (ParallelStep(main_box, recipe,
+                         step.expected_genes, output_id, step.clone_yield),)))
+        references[step.output_id] = output_id
+        occupied.add(output_id)
     return tuple(waves)
 
 
@@ -209,9 +237,7 @@ def plan_parallel(inventory, target, *, box_count=3, main_box=1, max_waves=3,
     if sequential.cancelled:
         return finish(why='cancelled')
     if sequential.found:
-        fallback = tuple(ParallelWave(number, (ParallelStep(main_box, x.recipe, x.expected_genes,
-                                                           x.output_id, x.clone_yield),))
-                         for number, x in enumerate(sequential.steps, 1))
+        fallback = _sequential_waves(sequential.steps, rows, main_box)
         if len(fallback) == 1 and objective == 'rounds':
             return finish(fallback, True, why='found')
 

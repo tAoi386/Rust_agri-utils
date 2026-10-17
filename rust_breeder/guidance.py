@@ -20,7 +20,7 @@ from .notifications import ActionNotice
 from .planter import positions_for
 from .widgets import button, label, clear_layout
 from .i18n import (LocalizedComboBox as QComboBox, LocalizedLineEdit as QLineEdit,
-                   LocalizedTableWidget as QTableWidget)
+                   LocalizedTableWidget as QTableWidget, tr)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class GuidedWorkspace(QWidget):
         self.crop = QComboBox()
         self.crop.setMinimumWidth(115)
         for i in range(owner.crop_combo.count()):
-            self.crop.addItem(owner.crop_combo.itemText(i), owner.crop_combo.itemData(i))
+            self.crop.addItem(owner.crop_combo.itemSourceText(i), owner.crop_combo.itemData(i))
         self.crop.currentIndexChanged.connect(self.change_crop)
         head.addWidget(self.crop)
         outer.addLayout(head)
@@ -736,6 +736,8 @@ class GuidedWorkspace(QWidget):
             self.actual_assessment.setText("请填写游戏里读到的完整六位基因。" if self.actual_edit.text() else "输入后会立即比较目标。")
         matches = valid and self._matches_prediction(self.actual_edit.text())
         mismatch = valid and self.state.pending is not None and not matches
+        if matches and self.status.text() == tr("输入与本轮预测不一致，尚未记账。请核对杂交是否完成及实际基因。"):
+            self.status.setText("实测须与本轮预测一致；确认提交后才扣用苗。")
         if mismatch:
             self.actual_assessment.setText(f"与本轮预测不一致，不能进入下一轮。\n本轮预测：{self.state.pending.predicted_pattern}\n请核对是否已完成杂交，以及中央苗和供体是否正确。")
         elif matches:

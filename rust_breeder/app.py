@@ -5,6 +5,7 @@ from dataclasses import asdict
 import logging
 from pathlib import Path
 import re
+import shutil
 import sys
 import uuid
 
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__
 from .models import InventoryItem, Target, normalize_genes
-from .storage import load_project, save_project, ProjectError
+from .storage import load_project, save_project, validate_project, ProjectError
 from .project_library import ProjectLibrary
 from .capture_dialog import ScreenCaptureDialog
 from .guidance import GuidedWorkspace
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self._pages = []
         self._last_target = Target()
         self.library_error = ''
+        self._restore_error = ''
         try:
             self.library = ProjectLibrary(AUTOSAVE.parent)
         except (OSError, ValueError) as exc:
@@ -271,18 +273,9 @@ class MainWindow(QMainWindow):
         return data
 
     def apply_project(self, data):
-        from .journey import JourneyState
-        from .parallel import ParallelState
-        sequential = JourneyState.from_dict(data['journey']) if 'journey' in data else None
-        parallel = ParallelState.from_dict(data['parallel']) if 'parallel' in data else None
-        if sequential and parallel and sequential.pending is not None and parallel.pending is not None:
-            raise ProjectError('项目同时含有两种模式的待完成安排，请先核对库存。')
+        # Validate the entire document before changing any live widgets or stock.
+        data = validate_project(data)
         numbers = data.get('seed_numbers', {})
-        if (not isinstance(numbers, dict) or len(numbers) > 20000
-                or any(not isinstance(key, str) or not key or len(key) > 128 or type(value) is not int
-                       or not 1 <= value <= 1_000_000_000 for key, value in numbers.items())
-                or len(set(numbers.values())) != len(numbers)):
-            raise ProjectError('苗编号记录无效。')
         rows = [InventoryItem(**{key: row[key] for key in ('id', 'genes', 'quantity', 'name')})
                 for row in data['inventory']]
         target = Target(data['target'], data.get('target_mode', 'counts'))
@@ -314,28 +307,45 @@ class MainWindow(QMainWindow):
     def restore_local_work(self):
         try:
             if self.library is not None and self.library.current_id:
-                self.current_project_id = self.library.current_id
-                data = self.library.load(self.current_project_id)
+                project_id = self.library.current_id
+                data = self.library.load(project_id)
                 self.apply_project(data)
+                self.current_project_id = project_id
             elif AUTOSAVE.exists():
                 self.apply_project(load_project(AUTOSAVE))
                 if self.library is not None:
                     self.current_project_id = self.library.create('默认项目 · ' + self.crop_combo.currentText(), self.snapshot())
-            if self.library is not None:
-                self.library.import_legacy(sorted(BASE_DIR.glob('*.json')))
+            if self.library is None:
+                raise ProjectError(self.library_error or '软件内项目列表不可用。')
+            if self.library.entries and not self.current_project_id and getattr(self.library, 'recovery_messages', []):
+                raise ProjectError('请选择要继续的项目；恢复的项目列表已保留。')
+            self.library.import_legacy(sorted(BASE_DIR.glob('*.json')))
             self.update_project_name()
             if self.current_project_id:
                 self.autosave()
-            self.statusBar().showMessage(tr('已恢复自动保存；项目在软件内管理。'), 5000)
+            messages = getattr(self.library, 'recovery_messages', [])
+            self.statusBar().showMessage(tr('已从备份恢复项目，原文件已保留。' if messages else
+                                           '已恢复自动保存；项目在软件内管理。'), 8000)
         except (OSError, ValueError) as exc:
+            self._restore_error = str(exc)
+            self.autosave_timer.stop()
             self.statusBar().showMessage(tr(f'项目恢复未完成：{exc}'))
-            self.save_status.setText('恢复异常，原文件已保留')
+            self.save_status.setText('恢复异常，已暂停保存；请打开其他项目或新建项目')
+
+    def preserve_failed_autosave(self):
+        if self._restore_error and AUTOSAVE.is_file():
+            backup = AUTOSAVE.with_name(f'autosave.recovery-{uuid.uuid4().hex}.json')
+            shutil.copy2(AUTOSAVE, backup)
 
     def update_project_name(self):
         name = self.library.name(self.current_project_id) if self.library and self.current_project_id else '默认项目'
         self.project_name_label.setText('软件内项目 · ' + name)
 
     def autosave(self):
+        if self._restore_error:
+            self.save_status.setText('恢复异常，已暂停保存；请打开其他项目或新建项目')
+            self.statusBar().showMessage(tr(f'项目恢复未完成：{self._restore_error}'))
+            return False
         try:
             data = self.snapshot()
             AUTOSAVE.parent.mkdir(parents=True, exist_ok=True)
@@ -366,14 +376,22 @@ class MainWindow(QMainWindow):
         name, accepted = QInputDialog.getText(self, '新建软件内项目', '项目名称', text='新的种植项目')
         if not accepted or not name.strip():
             return
-        if not self.autosave() or self.library is None:
+        if self.library is None:
+            try:
+                self.library = ProjectLibrary(AUTOSAVE.parent, recover_empty=True)
+            except (OSError, ValueError) as exc:
+                self.show_notice('新建失败', str(exc))
+                return
+        if not self._restore_error and not self.autosave():
             return
         blank = {'version': 1, 'inventory': [], 'target': 'YYYGGG', 'target_mode': 'counts',
                  'crop': 'hemp', 'slots': [None] * 9, 'seed_numbers': {}}
         try:
+            self.preserve_failed_autosave()
             project_id = self.library.create(name, blank)
             self.apply_project(blank)
             self.current_project_id = project_id
+            self._restore_error = ''
             self.changed()
             self.autosave()
         except (OSError, ValueError) as exc:
@@ -382,7 +400,10 @@ class MainWindow(QMainWindow):
     def open_local_project(self):
         if self.work_busy() or any(page.state.pending is not None for page in self._pages):
             return
-        if not self.autosave() or self.library is None:
+        if self.library is None:
+            self.show_notice('软件内项目列表不可用。', self.library_error)
+            return
+        if not self._restore_error and not self.autosave():
             return
         dialog = QDialog(self)
         dialog.setWindowTitle('打开软件内项目')
@@ -404,8 +425,10 @@ class MainWindow(QMainWindow):
             if dialog.exec() and 0 <= listing.currentRow() < len(rows):
                 project_id = rows[listing.currentRow()]['id']
                 data = self.library.load(project_id)
+                self.preserve_failed_autosave()
                 self.apply_project(data)
                 self.current_project_id = project_id
+                self._restore_error = ''
                 self.changed()
                 self.autosave()
         except (OSError, ValueError) as exc:

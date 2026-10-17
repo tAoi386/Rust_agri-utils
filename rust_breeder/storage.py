@@ -183,6 +183,20 @@ def validate_project(data: Any) -> dict[str, Any]:
         if isinstance(exc, ProjectError):
             raise
         raise ProjectError("项目中存在不支持的数据；只能保存普通 JSON 数据。") from exc
+    # Reject broken typed histories before a save or migration can replace a
+    # usable project. Keep unknown extension fields intact for forward use.
+    try:
+        sequential = parallel = None
+        if "journey" in result:
+            from .journey import JourneyState
+            sequential = JourneyState.from_dict(result["journey"])
+        if "parallel" in result:
+            from .parallel_models import ParallelState
+            parallel = ParallelState.from_dict(result["parallel"])
+        if sequential is not None and parallel is not None and sequential.pending is not None and parallel.pending is not None:
+            raise ValueError("项目同时含有两种模式的待完成安排，请先核对库存。")
+    except (TypeError, KeyError, ValueError, RecursionError) as exc:
+        raise ProjectError(f"项目培育记录无效：{exc}") from exc
     return deepcopy(result)
 
 

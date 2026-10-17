@@ -46,7 +46,7 @@ def oracle_route(rows, center_id, target, rounds=2, max_donors=4, clone_yield=1,
     for depth in range(1, rounds + 1):
         successors = {}
         for center, available, spent in frontier:
-            for count in range(0 if clone_yield > 1 else 1, min(max_donors, len(available)) + 1):
+            for count in range(1, min(max_donors, len(available)) + 1):
                 choices = set(combinations(range(len(available)), count))
                 for chosen in choices:
                     donors = tuple(available[i] for i in chosen)

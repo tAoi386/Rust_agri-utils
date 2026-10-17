@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from rust_breeder import screen_ocr
 
@@ -300,12 +300,12 @@ class WindowsOcrProcessTests(unittest.TestCase):
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
         self.assertTrue(written_paths)
         self.assertFalse(written_paths[0].exists())
-        self.fallback.assert_called_once_with(PNG)
+        self.fallback.assert_called_once_with(PNG, deadline=ANY)
 
     def test_no_genes_is_a_successful_empty_result(self):
         self.process.return_value = self.result({"text": "unrelated page content"})
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ())
-        self.fallback.assert_called_once_with(PNG)
+        self.fallback.assert_called_once_with(PNG, deadline=ANY)
 
     def test_badge_cleanup_is_recognized_in_a_second_local_pass(self):
         cleaned = PNG + b"cleaned"
@@ -339,19 +339,33 @@ class WindowsOcrProcessTests(unittest.TestCase):
         self.process.side_effect = [self.result({"text": ""}), self.result({"text": "", "words": words})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
 
+    def test_manual_color_location_receives_same_total_deadline_as_engine(self):
+        with patch.object(screen_ocr.time, "monotonic", return_value=100.0):
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
+        self.fallback.assert_called_once_with(PNG, deadline=115.0)
+
     def test_total_deadline_is_checked_after_the_second_engine_call(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
-        self.process.side_effect = [self.result({"text": ""}), self.result({"text": "GYYGHX"})]
-        with patch.object(screen_ocr.time, "monotonic", side_effect=[100.0, 100.1, 115.1]):
+        clock = [100.0]
+
+        def engine(*args, **kwargs):
+            if self.process.call_count == 2:
+                clock[0] = 115.1
+            return self.result({"text": "GYYGHX"})
+
+        self.process.side_effect = engine
+        with patch.object(screen_ocr.time, "monotonic", side_effect=lambda: clock[0]):
             with self.assertRaisesRegex(screen_ocr.OcrError, "超时"):
                 screen_ocr.recognize_gene_image(PNG)
+        self.assertEqual(self.process.call_count, 2)
 
     def test_badge_pass_honors_total_fifteen_second_deadline(self):
+        # A full first OCR timeout must not start a fresh, unbounded pixel scan.
         self.process.return_value = self.result({"text": ""})
-        self.fallback.return_value = PNG
         with patch.object(screen_ocr.time, "monotonic", side_effect=[100.0, 115.1]):
             with self.assertRaisesRegex(screen_ocr.OcrError, "超时"):
                 screen_ocr.recognize_gene_image(PNG)
+        self.fallback.assert_not_called()
         self.assertEqual(self.process.call_count, 1)
 
     def test_timeout_removes_image_and_reports_helpful_error(self):

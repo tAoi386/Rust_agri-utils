@@ -194,6 +194,11 @@ class ScreenCaptureDialog(QDialog):
         self.capture_screen = None
         self.capture_signature = None
         self.selecting = False
+        self.selection_context = None
+        self.region_selector = None
+        self.selection_timer = QTimer(self)
+        self.selection_timer.setSingleShot(True)
+        self.selection_timer.timeout.connect(self.finish_selection)
         self.close_pending = False
         self.collapsed = False
         self.owner_was_visible = False
@@ -430,16 +435,43 @@ class ScreenCaptureDialog(QDialog):
         self.hide()
         if owner_visible:
             owner.hide()
-        # Let Windows remove our windows before taking the selection backdrop.
-        QTimer.singleShot(350, lambda: self.finish_selection(self.screens[index], owner, owner_visible))
+        self.selection_context = (self.screens[index], owner, owner_visible,
+                                  owner.windowState() if owner is not None else None)
+        # A child timer is cancelled by done() or destruction. A free callback
+        # could reopen the rejected dialog or touch a deleted Qt wrapper.
+        self.selection_timer.start(350)
 
-    def finish_selection(self, screen, owner, owner_visible):
+    def cancel_selection(self):
+        self.selection_timer.stop()
+        context = self.selection_context
+        self.selection_context = None
+        self.selecting = False
+        selector = self.region_selector
+        self.region_selector = None
+        if selector is not None:
+            selector.reject()
+        if context is not None:
+            _, owner, owner_visible, owner_state = context
+            if owner_visible and owner is not None:
+                owner.setWindowState(owner_state)
+                owner.show()
+
+    def finish_selection(self):
+        context = self.selection_context
+        if context is None:
+            return
+        screen, owner, owner_visible, owner_state = context
+        selector = None
         try:
             if screen not in QApplication.screens():
                 self.status.setText("屏幕已断开，请重新选择。")
                 return
             selector = RegionSelector(screen)
-            if selector.exec():
+            self.region_selector = selector
+            accepted = selector.exec()
+            if self.selection_context is not context:
+                return
+            if accepted:
                 self.capture_screen = screen
                 self.region = QRect(selector.selection)
                 self.capture_signature = self.screen_signature(screen)
@@ -448,12 +480,21 @@ class ScreenCaptureDialog(QDialog):
                 self.set_preview(screen.grabWindow(0, self.region.x(), self.region.y(),
                                                   self.region.width(), self.region.height()).toImage())
         finally:
-            self.selecting = False
-            if owner_visible:
-                owner.show()
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            if self.region_selector is selector:
+                self.region_selector = None
+            if selector is not None:
+                selector.deleteLater()
+            # done() may run inside the selector's nested event loop. It owns
+            # restoring the parent in that case; never show a closed dialog.
+            if self.selection_context is context:
+                self.selection_context = None
+                self.selecting = False
+                if owner_visible:
+                    owner.setWindowState(owner_state)
+                    owner.show()
+                self.show()
+                self.raise_()
+                self.activateWindow()
 
     def toggle_capture(self):
         if self.running:
@@ -800,6 +841,7 @@ class ScreenCaptureDialog(QDialog):
         self.accept()
 
     def done(self, result):
+        self.cancel_selection()
         self.stop_capture(restore=False)
         if self.worker is not None:
             self.close_pending = True

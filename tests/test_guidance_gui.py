@@ -797,5 +797,26 @@ class GuidedWorkspaceTests(unittest.TestCase):
         self.assertIn("旧结果未应用", self.guided.status.text())
 
 
+    def test_correcting_mismatched_actual_clears_stale_failure_message_in_all_languages(self):
+        from rust_breeder.i18n import set_language, tr
+        self.plan()
+        before = tuple(self.window.inventory)
+        failure = "输入与本轮预测不一致，尚未记账。请核对杂交是否完成及实际基因。"
+        try:
+            for code in ('zh_CN', 'en', 'ru'):
+                with self.subTest(language=code):
+                    set_language(code)
+                    self.fill_actual('XXXXXX')
+                    self.guided.complete_current_round()
+                    self.assertEqual(self.guided.status.text(), tr(failure))
+                    self.assertFalse(self.guided.commit_button.isEnabled())
+                    self.guided.actual_edit.setText('YYYGGG')
+                    self.assertNotEqual(self.guided.status.text(), tr(failure))
+                    self.assertTrue(self.guided.commit_button.isEnabled())
+                    self.assertEqual(tuple(self.window.inventory), before)
+        finally:
+            set_language('zh_CN')
+
+
 if __name__ == "__main__":
     unittest.main()

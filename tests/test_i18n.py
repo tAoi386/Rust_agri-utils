@@ -186,6 +186,19 @@ class LocalizationTests(unittest.TestCase):
             self.assertEqual(page.state.to_dict(), state)
             self.assertEqual(window.inventory, rows)
 
+    def test_crop_sources_survive_a_window_created_in_another_language(self):
+        set_language('en')
+        window = self.window()
+        source = window.crop_combo.itemSourceText(window.crop_combo.findData('blue'))
+        self.assertEqual(source, '蓝浆果')
+        for code in ('ru', 'zh_CN', 'en'):
+            set_language(code)
+            localize_tree(window)
+            index = window.guided.crop.findData('blue')
+            self.assertEqual(window.guided.crop.itemText(index), tr('蓝浆果'))
+            self.assertEqual(window.guided.crop.itemSourceText(index), '蓝浆果')
+            self.assertEqual(window.guided.crop.currentData(), 'hemp')
+
     def test_cancelled_parallel_search_is_stopped_not_no_solution(self):
         window = self.window()
         page = window.parallel

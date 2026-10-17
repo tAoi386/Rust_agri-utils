@@ -225,6 +225,12 @@ class LocalizedComboBox(QComboBox):
         self._i18n_items.append(str(source))
         super().addItem(*values)
 
+    def itemSourceText(self, index):
+        """Return application text before translation when copying controls."""
+        if 0 <= index < len(self._i18n_items):
+            return self._i18n_items[index]
+        return self.itemText(index)
+
     def setItemText(self, index, source):
         if 0 <= index < len(self._i18n_items):
             self._i18n_items[index] = str(source)
