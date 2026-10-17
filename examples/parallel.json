@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "id": "demo-01",
+      "genes": "HGYGHG",
+      "quantity": 1,
+      "name": "Demo01"
+    },
+    {
+      "id": "demo-02",
+      "genes": "HGGGYY",
+      "quantity": 1,
+      "name": "Demo02"
+    },
+    {
+      "id": "demo-03",
+      "genes": "HYYGYG",
+      "quantity": 1,
+      "name": "Demo03"
+    },
+    {
+      "id": "demo-04",
+      "genes": "YHYYHH",
+      "quantity": 1,
+      "name": "Demo04"
+    },
+    {
+      "id": "demo-05",
+      "genes": "GYHYYY",
+      "quantity": 1,
+      "name": "Demo05"
+    },
+    {
+      "id": "demo-06",
+      "genes": "YYHYYY",
+      "quantity": 1,
+      "name": "Demo06"
+    },
+    {
+      "id": "demo-07",
+      "genes": "YHYYHG",
+      "quantity": 1,
+      "name": "Demo07"
+    }
+  ],
+  "crop": "hemp",
+  "target": "YYYGGG",
+  "target_mode": "counts",
+  "slots": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "step": 0,
+  "observed_genes": "",
+  "seed_numbers": {
+    "demo-01": 1,
+    "demo-02": 2,
+    "demo-03": 3,
+    "demo-04": 4,
+    "demo-05": 5,
+    "demo-06": 6,
+    "demo-07": 7
+  },
+  "workspace": "parallel",
+  "parallel": {
+    "version": 1,
+    "target": {
+      "genes": "YYYGGG",
+      "mode": "counts"
+    },
+    "box_count": 3,
+    "main_box": 1,
+    "waves": [],
+    "pending": null,
+    "undo_checkpoint": null
+  },
+  "parallel_ui": {
+    "box_count": 3,
+    "main_box": 1,
+    "max_waves": 2,
+    "clone_yield": 1,
+    "objective": "rounds",
+    "selected_box": 1,
+    "drafts": {}
+  }
+}

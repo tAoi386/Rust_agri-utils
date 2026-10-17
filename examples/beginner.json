@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "id": "a01",
+      "genes": "GYYGGG",
+      "quantity": 1,
+      "name": "A01 · 中央候选"
+    },
+    {
+      "id": "a02",
+      "genes": "YHYGGG",
+      "quantity": 1,
+      "name": "A02 · 供体候选"
+    },
+    {
+      "id": "a03",
+      "genes": "YGGGGG",
+      "quantity": 1,
+      "name": "A03 · 供体候选"
+    },
+    {
+      "id": "a04",
+      "genes": "WYGXGH",
+      "quantity": 1,
+      "name": "A04 · 待改良苗"
+    }
+  ],
+  "target": "YYYGGG",
+  "target_mode": "counts",
+  "slots": [
+    null,
+    {
+      "seed_id": "a03",
+      "remove": false
+    },
+    null,
+    {
+      "seed_id": "a02",
+      "remove": false
+    },
+    {
+      "seed_id": "a01",
+      "remove": false
+    },
+    null,
+    null,
+    null,
+    null
+  ],
+  "crop": "hemp",
+  "step": 0,
+  "observed_genes": ""
+}

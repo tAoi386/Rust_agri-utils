@@ -1,0 +1,49 @@
+# Local dependencies and Python caches
+/.deps/
+/.build-deps/
+/.cache/
+/.venv/
+/venv/
+/env/
+.tox/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated builds, release archives and local verification output
+/build/
+/dist/
+/artifacts/
+*.exe
+*.zip
+
+# Personal application state, recovery copies and workspace metadata
+/data/
+/旧版项目备份/
+/.codex/
+/.agents/
+
+# User projects live at the repository root. Keep anonymous examples public.
+/*.json
+!/examples/
+!/examples/*.json
+# Allow conventional source/configuration JSON files if added later.
+!/package.json
+!/package-lock.json
+!/pyrightconfig.json
+!/tsconfig*.json
+
+# Local editor and operating-system files
+/.idea/
+/.vscode/
+*.log
+*.dmp
+*.tmp
+.DS_Store
+Thumbs.db
+
+# RustSeedLab.spec is intentionally tracked: it is required to build releases.
