@@ -3,13 +3,15 @@
 from dataclasses import asdict
 import random
 import subprocess
+import sys
+from threading import enumerate as active_threads
 from time import monotonic
 import unittest
 from unittest.mock import patch
 
 from rust_breeder.engine import predict, _donor_totals, _deterministic_from_totals
 from rust_breeder.models import InventoryItem, Target
-from rust_breeder.planner_process import (plan_route_process, _report_from_dict,
+from rust_breeder.planner_process import (plan_parallel_process, plan_route_process, _report_from_dict,
                                          _worker_command, MESSAGE_LIMIT)
 from rust_breeder.routes import plan_route
 
@@ -84,6 +86,62 @@ class PlannerProcessTests(unittest.TestCase):
         self.assertLess(monotonic() - started, 2.5)
         self.assertEqual(len(opened), 1)
         self.assertIsNotNone(opened[0].poll())
+
+    def test_large_request_to_unresponsive_child_remains_cancellable_and_reaped(self):
+        # More than a pipe buffer: the child deliberately never reads stdin.
+        rows = tuple(InventoryItem(str(index), 'GGGGGH', 1, 'x' * 1000)
+                     for index in range(1000))
+        real_popen = subprocess.Popen
+        for planner in (plan_route_process, plan_parallel_process):
+            with self.subTest(planner=planner.__name__):
+                opened = []
+
+                def record(*args, **kwargs):
+                    opened.append(real_popen(*args, **kwargs))
+                    return opened[-1]
+
+                started = monotonic()
+                with patch('rust_breeder.planner_process._worker_command',
+                           return_value=[sys.executable, '-c', 'import time; time.sleep(30)']), \
+                        patch('rust_breeder.planner_process.subprocess.Popen', record):
+                    result = planner(rows, self.target, max_seconds=12,
+                                     cancel=lambda: monotonic() - started > .15)
+                self.assertTrue(result.cancelled)
+                self.assertLess(monotonic() - started, 2.5)
+                self.assertIsNotNone(opened[0].poll())
+                self.assertTrue(opened[0].stdin.closed)
+                self.assertTrue(opened[0].stdout.closed)
+                self.assertFalse(any(thread.name in ('route-request-writer', 'route-result-reader')
+                                     for thread in active_threads()))
+        self.assertEqual(rows[0].quantity, 1)
+
+    def test_child_exiting_before_large_request_has_readable_error_and_full_cleanup(self):
+        rows = tuple(InventoryItem(str(index), 'GGGGGH', 1, 'x' * 1000)
+                     for index in range(1000))
+        opened = []
+        real_popen = subprocess.Popen
+
+        def record(*args, **kwargs):
+            opened.append(real_popen(*args, **kwargs))
+            return opened[-1]
+
+        with patch('rust_breeder.planner_process._worker_command',
+                   return_value=[sys.executable, '-c', 'import os; os._exit(23)']), \
+                patch('rust_breeder.planner_process.subprocess.Popen', record):
+            with self.assertRaisesRegex(RuntimeError, '意外结束.*种子库未更改'):
+                plan_route_process(rows, self.target)
+        self.assertEqual(opened[0].poll(), 23)
+        self.assertTrue(opened[0].stdin.closed)
+        self.assertTrue(opened[0].stdout.closed)
+        self.assertFalse(any(thread.name in ('route-request-writer', 'route-result-reader')
+                             for thread in active_threads()))
+
+    def test_non_object_worker_reply_is_rejected_and_child_is_reaped(self):
+        with patch('rust_breeder.planner_process._worker_command', return_value=[
+                sys.executable, '-c',
+                'import sys; sys.stdin.readline(); print("[]", flush=True)']):
+            with self.assertRaisesRegex(RuntimeError, '计算失败'):
+                plan_route_process(self.rows, self.target)
 
     def test_worker_validation_error_is_reported_and_child_exits(self):
         with self.assertRaisesRegex(RuntimeError, '轮数'):

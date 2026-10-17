@@ -116,18 +116,37 @@ def _plan_process(inventory, target, *, cancel=None, progress=None, job='route',
                     break
                 if len(line) > MESSAGE_LIMIT:
                     raise RuntimeError('计算进程返回的数据过大。')
-                messages.put(json.loads(line))
+                message = json.loads(line)
+                if not isinstance(message, dict):
+                    raise RuntimeError('路线计算失败。')
+                messages.put(message)
         except Exception as error:
             messages.put({'type': 'error', 'message': str(error)})
         finally:
             messages.put({'type': 'eof'})
 
+    def write_request():
+        # Windows pipe writes block when a starting child has not read yet.
+        # Keep cancellation/deadline handling alive even for a large library.
+        try:
+            process.stdin.write(request + b'\n')
+            process.stdin.close()
+        except (OSError, ValueError):
+            messages.put({'type': 'error', 'message':
+                          '计算进程意外结束；种子库未更改，请重试。'})
+        finally:
+            if not process.stdin.closed:
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+
     reader = Thread(target=read_messages, name='route-result-reader', daemon=True)
+    writer = Thread(target=write_request, name='route-request-writer', daemon=True)
     reader.start()
+    writer.start()
     completed = False
     try:
-        process.stdin.write(request + b'\n')
-        process.stdin.close()
         deadline = started + max(15.0, float(options.get('max_seconds', 8)) + 10.0)
         while True:
             if cancel and cancel():
@@ -170,8 +189,14 @@ def _plan_process(inventory, target, *, cancel=None, progress=None, job='route',
                 process.wait(timeout=1.0)
         else:
             process.wait()
-        if not process.stdin.closed:
-            process.stdin.close()
+        # Terminating the child releases a blocked writer before closing its
+        # buffered stream. Closing from this thread while it writes can lock.
+        writer.join(timeout=1.0)
+        if not writer.is_alive() and not process.stdin.closed:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
         reader.join(timeout=1.0)
         process.stdout.close()
 

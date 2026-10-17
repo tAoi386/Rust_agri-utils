@@ -675,7 +675,8 @@ def recognize_gene_image(png_bytes: bytes, *, colored_only: bool = False) -> tup
     genes = extract_gene_sequences(_recognize_image_text(png_bytes, executable, _OCR_TIMEOUT_SECONDS))
     # A valid alphabet alone cannot establish accuracy: OCR can misread a red
     # W as a green-compatible H. Always inspect recognizable colored groups.
-    prepared = _prepare_badge_image(png_bytes)
+    _check_deadline(deadline)
+    prepared = _prepare_badge_image(png_bytes, deadline=deadline)
     if prepared is None:
         if time.monotonic() > deadline:
             raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")

@@ -2,9 +2,17 @@
 
 # Rust Growing Toolkit
 
-**V3.0.1 · Windows desktop application**
+**V3.0.2 · Windows desktop application**
 
 Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com).
+
+## V3.0.2 fixes
+
+- Damaged projects or project lists are preserved and recovery uses only a matching autosave. Saving pauses when recovery fails, protecting existing data from an empty workspace.
+- Fixed intermediate clone identifiers colliding during repeated parallel replanning and blocking later batches.
+- Fixed delayed region selection reopening the capture window after it was closed.
+- Sequential plans no longer include donor-free intermediate steps that the current workflow cannot execute.
+- Fixed delayed cancellation while sending a large library to a background calculation, and crop names remaining in the previous language.
 
 ## Commercial use
 

@@ -677,6 +677,21 @@ _TEMPLATE_ENTRIES += [
     ("{n} 号箱{role}", "Planter {n} {role}", "Грядка {n}: {role}"),
 ]
 
+_ENTRIES += [
+    ("请选择要继续的项目；恢复的项目列表已保留。", "Choose a project to continue; the recovered project list is kept.", "Выберите проект для продолжения; восстановленный список сохранён."),
+    ("已从备份恢复项目，原文件已保留。", "Project restored from backup; original files kept.", "Проект восстановлен из копии; исходные файлы сохранены."),
+    ("恢复异常，已暂停保存；请打开其他项目或新建项目", "Restore failed; saving paused. Open another project or create a new one.", "Ошибка восстановления; сохранение приостановлено. Откройте другой проект или создайте новый."),
+    ("项目列表已从有效项目和匹配的自动保存中恢复，原文件已备份。", "Project list restored from valid projects and matching autosave. Original index backed up.", "Список восстановлен по исправным проектам и совпадающему автосохранению. Исходный индекс сохранён в копии."),
+    ("当前项目已从匹配的自动保存中恢复，原项目文件已备份。", "Current project restored from its matching autosave. Original project file backed up.", "Текущий проект восстановлен из совпадающего автосохранения. Исходный файл проекта сохранён в копии."),
+    ("已保留损坏项目文件并重建空项目列表，可创建新项目。", "Damaged project files kept; an empty project list is ready for a new project.", "Повреждённые файлы проектов сохранены; создан пустой список для нового проекта."),
+    ("项目内容与软件内项目编号不一致。", "Project content does not match its local project ID.", "Содержимое проекта не соответствует его локальному номеру."),
+    ("自动保存与当前项目编号不一致，未替换原项目。", "Autosave belongs to a different project. Original project was not replaced.", "Автосохранение относится к другому проекту. Исходный проект не заменён."),
+    ("项目列表版本无效。", "Invalid project-list version.", "Недопустимая версия списка проектов."),
+]
+_TEMPLATE_ENTRIES += [
+    ("项目培育记录无效：{detail}", "Invalid project breeding history: {detail}", "Недопустимая история селекции проекта: {detail}"),
+]
+
 TRANSLATIONS = {
     "en": {source: english for source, english, russian in _ENTRIES},
     "ru": {source: russian for source, english, russian in _ENTRIES},

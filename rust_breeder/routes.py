@@ -340,6 +340,8 @@ def plan_route(
     ``clone_yield`` copies of its deterministic result for planning purposes.
     This is an explicit user estimate, not an assumption of unlimited clones.
     Counts and actual genes must be reconciled before executing another round.
+    A non-target round requires at least one donor, matching the sequential
+    execution contract; standalone zero-donor propagation is not an action.
     ``complete`` and minimum flags concern deterministic model routes only.
     """
     for name, value in (("轮数", max_rounds), ("克隆数量", clone_yield),
@@ -629,7 +631,7 @@ def plan_route(
             if interrupted():
                 break
             if winner is not None and objective == "plants":
-                cheapest_next = 1 if clone_yield > 1 else 2
+                cheapest_next = 2
                 if route_rank(state.plants + cheapest_next, depth) >= route_rank(winner.plants, len(winner.steps)):
                     continue
             state_budget = max(1, (layer_budget - (evaluated - layer_start))
@@ -654,9 +656,11 @@ def plan_route(
             selected_caps = tuple(capacities[i] for i in indices)
             selected_genes = tuple(all_genes[i] for i in indices)
             effective_max = min(max_donors, sum(selected_caps))
+            # The sequential workspace executes crossbreeding rounds; its
+            # pending-round contract rejects a non-target center with no
+            # donors. Clone estimates do not introduce an unexecutable
+            # zero-donor propagation action into an otherwise valid route.
             counts_to_visit = list(range(1, effective_max + 1))
-            if clone_yield > 1:
-                counts_to_visit.insert(0, 0)
             if winner is not None:
                 counts_to_visit = [count for count in counts_to_visit
                                    if route_rank(state.plants + count + 1, depth)
@@ -693,7 +697,7 @@ def plan_route(
                         progress(evaluated, depth)
                     # Preserve neutral/degrading intermediates: their exact
                     # positional pattern can unlock a later round.
-                    if outcome == state.center.genes and donor_count:
+                    if outcome == state.center.genes and clone_yield == 1:
                         continue
                     needs_recipe = outcome is not None or depth == 1
                     if not needs_recipe:

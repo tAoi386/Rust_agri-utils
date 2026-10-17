@@ -117,6 +117,55 @@ class CaptureGuiTests(unittest.TestCase):
 
         return recognize, started, release
 
+    def test_close_during_selection_delay_cancels_selector_and_restores_owner(self):
+        owner, dialog = self.visible_capture()
+        with patch.object(capture, "RegionSelector") as selector:
+            dialog.select_region()
+            self.assertTrue(dialog.selecting)
+            self.assertFalse(owner.isVisible())
+            dialog.reject()
+            self.assertTrue(owner.isVisible())
+            self.assertFalse(dialog.isVisible())
+            self.assertFalse(dialog.selecting)
+            QTest.qWait(400)
+            selector.assert_not_called()
+            self.assertFalse(dialog.isVisible())
+
+    def test_delete_during_selection_delay_does_not_leave_a_free_callback(self):
+        owner, dialog = self.visible_capture()
+        with patch.object(capture, "RegionSelector") as selector:
+            dialog.select_region()
+            dialog.reject()
+            dialog.deleteLater()
+            QTest.qWait(400)
+            self.assertFalse(isValid(dialog))
+            selector.assert_not_called()
+            self.assertTrue(owner.isVisible())
+
+    def test_close_inside_active_selector_does_not_reopen_capture_dialog(self):
+        owner, dialog = self.visible_capture()
+        selectors = []
+
+        class ClosingSelector(QDialog):
+            def __init__(self, screen):
+                super().__init__()
+                selectors.append(self)
+
+            def exec(self):
+                QTimer.singleShot(0, dialog.reject)
+                return super().exec()
+
+        with patch.object(capture, "RegionSelector", ClosingSelector):
+            dialog.select_region()
+            dialog.selection_timer.stop()
+            dialog.finish_selection()
+        self.assertEqual(len(selectors), 1)
+        self.assertFalse(dialog.isVisible())
+        self.assertTrue(owner.isVisible())
+        self.assertFalse(dialog.selecting)
+        self.assertIsNone(dialog.region_selector)
+        self.assertIsNone(dialog.selection_context)
+
     def test_review_edits_selection_duplicates_and_quantity_are_applied_once(self):
         original = InventoryItem("original", "YYYGGG", 7, "已种的苗")
         dialog = self.new_dialog([original])

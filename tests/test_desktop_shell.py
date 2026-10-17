@@ -196,3 +196,111 @@ class DesktopShellTests(unittest.TestCase):
         self.window.inventory.reverse()
         self.window.refresh_inventory()
         self.assertEqual(self.window.seed_number('center'), 1)
+
+    def broken_current_project(self):
+        self.assertTrue(self.window.autosave())
+        project_id = self.window.current_project_id
+        project = self.window.library.path(project_id)
+        project.write_bytes(b'{broken current project')
+        self.autosave.write_bytes(b'{broken autosave')
+        return project_id, project
+
+    def test_failed_restore_cannot_overwrite_any_saved_data_with_empty_stock(self):
+        project_id, project = self.broken_current_project()
+        before = (project.read_bytes(), self.autosave.read_bytes())
+        restored = self.new_window(restore=True)
+        self.assertTrue(restored._restore_error)
+        restored.target_edit.setText('GGGGGG')
+        self.assertFalse(restored.save_local_project())
+        self.assertEqual((project.read_bytes(), self.autosave.read_bytes()), before)
+        self.assertEqual(restored.current_project_id, '')
+
+    def test_new_project_can_exit_failed_restore_and_keeps_original_files(self):
+        old_id, project = self.broken_current_project()
+        original = project.read_bytes()
+        failed_autosave = self.autosave.read_bytes()
+        restored = self.new_window(restore=True)
+        with patch.object(application.QInputDialog, 'getText', return_value=('新的独立项目', True)):
+            restored.new_local_project()
+        self.assertFalse(restored._restore_error)
+        self.assertNotEqual(restored.current_project_id, old_id)
+        self.assertEqual(restored.inventory, [])
+        self.assertEqual(project.read_bytes(), original)
+        backups = list(self.autosave.parent.glob('autosave.recovery-*.json'))
+        self.assertTrue(any(p.read_bytes() == failed_autosave for p in backups))
+        self.assertEqual(load_project(self.autosave)['local_project_id'], restored.current_project_id)
+
+    def test_open_other_project_can_exit_failed_restore_without_touching_bad_project(self):
+        self.assertTrue(self.window.autosave())
+        other_id = self.window.library.create('健康的项目', self.window.snapshot(), activate=False)
+        old_id, project = self.broken_current_project()
+        original = project.read_bytes()
+        restored = self.new_window(restore=True)
+        def choose(dialog):
+            listing = dialog.findChild(QListWidget)
+            for index in range(listing.count()):
+                if listing.item(index).text().startswith('健康的项目'):
+                    listing.setCurrentRow(index)
+            return QDialog.DialogCode.Accepted
+        with patch.object(QDialog, 'exec', choose):
+            restored.open_local_project()
+        self.assertFalse(restored._restore_error)
+        self.assertEqual(restored.current_project_id, other_id)
+        self.assertEqual(tuple(restored.inventory), tuple(self.window.inventory))
+        self.assertEqual(project.read_bytes(), original)
+
+    def test_deeply_invalid_current_project_uses_matching_autosave_without_losing_draft(self):
+        import json
+        self.pending()
+        self.window.guided.actual_edit.setText('YYYYGG')
+        self.assertTrue(self.window.autosave())
+        project = self.window.library.path(self.window.current_project_id)
+        data = json.loads(project.read_text(encoding='utf-8'))
+        data['journey'] = {'target': {'genes': 'NOTGENES', 'mode': 'exact'}}
+        original = json.dumps(data).encode('utf-8')
+        project.write_bytes(original)
+        restored = self.new_window(restore=True)
+        self.assertFalse(restored._restore_error)
+        self.assertEqual(tuple(restored.inventory), tuple(self.window.inventory))
+        self.assertEqual(restored.guided.actual_edit.text(), 'YYYYGG')
+        self.assertIsNotNone(restored.guided.state.pending)
+        recovery = list((self.autosave.parent / 'projects/recovery').glob('*'))
+        self.assertTrue(any(p.is_file() and p.read_bytes() == original for p in recovery))
+
+    def test_invalid_base_project_never_partially_replaces_working_inventory(self):
+        data = self.window.snapshot()
+        before = self.window.snapshot()
+        data['slots'] = [None] * 8
+        with self.assertRaises(ProjectError):
+            self.window.apply_project(data)
+        self.assertEqual(self.window.snapshot(), before)
+
+    def test_explicit_new_project_recovers_unreadable_index_without_discarding_originals(self):
+        old_id, project = self.broken_current_project()
+        index = self.autosave.parent / 'projects/library.json'
+        index.write_bytes(b'{broken index')
+        restored = self.new_window(restore=True)
+        self.assertIsNone(restored.library)
+        with patch.object(application.QInputDialog, 'getText', return_value=('恢复后新建', True)):
+            restored.new_local_project()
+        self.assertFalse(restored._restore_error)
+        self.assertNotEqual(restored.current_project_id, old_id)
+        self.assertEqual(project.read_bytes(), b'{broken current project')
+        recovery = self.autosave.parent / 'projects/recovery'
+        self.assertTrue(any(p.read_bytes() == b'{broken index' for p in recovery.glob('*') if p.is_file()))
+        self.assertTrue(restored.save_local_project())
+
+    def test_recovered_list_without_current_project_requires_explicit_project_choice(self):
+        self.assertTrue(self.window.autosave())
+        project = self.window.library.path(self.window.current_project_id)
+        original = project.read_bytes()
+        self.autosave.unlink()
+        index = self.autosave.parent / 'projects/library.json'
+        index.write_bytes(b'{unknown active project')
+        restored = self.new_window(restore=True)
+        self.assertIsNotNone(restored.library)
+        self.assertTrue(restored._restore_error)
+        self.assertEqual(restored.current_project_id, '')
+        self.assertFalse(restored.save_local_project())
+        self.assertEqual(project.read_bytes(), original)
+        self.assertFalse(self.autosave.exists())

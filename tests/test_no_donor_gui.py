@@ -21,6 +21,7 @@ else:
     from rust_breeder import app as application
     from rust_breeder.models import InventoryItem
     from rust_breeder.routes import plan_route
+    from rust_breeder.storage import ProjectError
 
 
 @unittest.skipUnless(QT_AVAILABLE, 'Install PySide6 to run Qt integration checks.')
@@ -160,7 +161,7 @@ class NoDonorWorkflowTests(unittest.TestCase):
             with self.subTest(old_step=old_step, observed=observed):
                 data = dict(original, step=old_step, observed_genes=observed, observed_input=observed)
                 data['slots'] = [None] * 9
-                data['slots'][4] = {'seed_id': 'seed-0', 'remove': True}
+                data['slots'][4] = {'seed_id': 'seed-0', 'remove': False}
                 data['guided'] = {'stage': old_step, 'actual_input': observed, 'completed': True}
                 restored = self.new_window()
                 restored.apply_project(data)
@@ -171,6 +172,22 @@ class NoDonorWorkflowTests(unittest.TestCase):
                 self.assertEqual(restored.guided.state.rounds, ())
                 restored.guided.complete_current_round()
                 self.assertEqual(tuple(restored.inventory), before)
+
+    def test_removed_legacy_center_is_rejected_without_changing_current_workbench(self):
+        self.arrange(('GYYGGG', 'YHYGGG', 'YGGGGG'))
+        original = self.window.snapshot()
+        inventory = tuple(self.window.inventory)
+        invalid = dict(original)
+        invalid['slots'] = [None] * 9
+        invalid['slots'][4] = {'seed_id': 'seed-0', 'remove': True}
+        invalid['step'] = 3
+        invalid['observed_genes'] = 'YYYGGG'
+        invalid['guided'] = {'stage': 3, 'actual_input': 'YYYGGG', 'completed': True}
+        with self.assertRaises(ProjectError):
+            self.window.apply_project(invalid)
+        self.assertEqual(tuple(self.window.inventory), inventory)
+        self.assertEqual(self.window.snapshot(), original)
+        self.assertIsNotNone(self.guided.state.pending)
 
     def test_unverified_report_cannot_hide_a_candidate_inside_planting_layout(self):
         report = self.arrange(('GYYGGG', 'YHYGGG', 'YGGGGG'))
