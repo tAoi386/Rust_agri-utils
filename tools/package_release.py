@@ -45,12 +45,12 @@ def package_release():
                         or relative.as_posix() in ("RustSeedLab.exe", "README.md", "README.en.md", "README.ru.md", "LICENSE.md")
                         or relative.as_posix() in ("examples/beginner.json", "examples/parallel.json")
                         or (relative.parts[:2] == ('resources', 'screenshots') and source.name in {
-                            f'{mode}-{language}.png' for mode in ('sequential', 'parallel')
+                            f'{mode}-{language}.png' for mode in ('sequential', 'parallel', 'capture')
                             for language in ('zh_CN', 'en', 'ru')})
                         or (relative.parts[0] == "artifacts" and (source.name == 'packaged-check.json'
                             or source.name == 'packaged-history.png'
                             or source.name in {f'packaged-{mode}-{language}.png'
-                                               for mode in ('sequential', 'parallel')
+                                               for mode in ('sequential', 'parallel', 'capture')
                                                for language in ('zh_CN', 'en', 'ru')})))
             if source.is_file() and packaged:
                 archive.write(source, source.relative_to(PACKAGE.parent))

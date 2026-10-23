@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from math import ceil, floor
 
-from PySide6.QtCore import QByteArray, QBuffer, QEventLoop, QIODevice, QPoint, QRect, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QByteArray, QBuffer, QEvent, QEventLoop, QIODevice, QPoint, QRect, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
-    QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QScrollArea, QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 from .capture_import import CaptureSession, plan_capture_import
@@ -16,7 +16,7 @@ from .models import normalize_genes
 from .screen_ocr import recognize_gene_image
 from .widgets import STYLE, button, label
 from .i18n import (LocalizedComboBox as QComboBox,
-                   LocalizedTableWidget as QTableWidget, set_translatable_item, tr)
+                   LocalizedTableWidget as QTableWidget, LocalizedLabel, localize_tree, set_translatable_item, tr)
 
 
 CAPTURE_INTERVAL_MS = 120
@@ -64,6 +64,102 @@ def mask_application_windows(image: QImage, source_rect: QRect) -> QImage:
     painter.end()
     result.setDevicePixelRatio(ratio)
     return result
+
+
+class CapturePreview(LocalizedLabel):
+    """Scale only the displayed copy; retain pixels for resize and inspection."""
+    image_changed = Signal(bool)
+    zoom_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__("区域预览 / 截图预览", parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setContentsMargins(8, 8, 8, 8)
+        self.setMinimumHeight(120)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self.setStyleSheet('background: #eef2f5; border: 1px solid #d7e0e7; border-radius: 4px;')
+        self.setToolTip("双击预览查看大图，可放大核对六位基因。")
+
+    def setText(self, text):
+        self._source_image = QImage()
+        super().setText(text)
+        self.image_changed.emit(False)
+
+    def set_image(self, image):
+        self._source_image = QImage(image)
+        self._source_image.setDevicePixelRatio(1.0)
+        if self._source_image.isNull():
+            self.clear()
+            return
+        self._render_image()
+        self.image_changed.emit(True)
+
+    def source_image(self):
+        return QImage(self._source_image)
+
+    def _render_image(self):
+        if self._source_image.isNull() or self.contentsRect().isEmpty():
+            return
+        ratio = self.devicePixelRatioF()
+        bounds = self.contentsRect().size() * ratio
+        pixmap = QPixmap.fromImage(self._source_image).scaled(
+            bounds, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        pixmap.setDevicePixelRatio(ratio)
+        super().setPixmap(pixmap)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._render_image()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self._source_image.isNull():
+            self.zoom_requested.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+
+class CapturePreviewDialog(QDialog):
+    def __init__(self, image, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("识别画面 · 放大核对")
+        self.resize(1000, 720)
+        self.setMinimumSize(560, 400)
+        layout = QVBoxLayout(self)
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(label("放大核对完整六位基因；识别结果仍需在列表确认。", "muted", True))
+        toolbar.addStretch()
+        self.zoom = QComboBox()
+        for title, factor in (("适应窗口", 0), ("原图大小", 1), ("2 倍", 2), ("4 倍", 4)):
+            self.zoom.addItem(title, factor)
+        toolbar.addWidget(self.zoom)
+        layout.addLayout(toolbar)
+        self.area = QScrollArea()
+        self.area.setWidgetResizable(True)
+        self.preview = CapturePreview()
+        self.preview.setMinimumSize(0, 0)
+        self.preview.set_image(image)
+        self.area.setWidget(self.preview)
+        layout.addWidget(self.area, 1)
+        layout.addWidget(button("关闭", self.accept), 0, Qt.AlignmentFlag.AlignRight)
+        self.zoom.currentIndexChanged.connect(self.change_zoom)
+        localize_tree(self)
+
+    def change_zoom(self):
+        factor = self.zoom.currentData()
+        self.area.setWidgetResizable(not factor)
+        if factor:
+            image = self.preview.source_image()
+            ratio = self.preview.devicePixelRatioF()
+            padding = self.preview.size() - self.preview.contentsRect().size()
+            self.preview.resize(ceil(image.width() * factor / ratio) + padding.width(),
+                                ceil(image.height() * factor / ratio) + padding.height())
+
+    def event(self, event):
+        handled = super().event(event)
+        if event.type() == QEvent.Type.DevicePixelRatioChange and hasattr(self, 'zoom'):
+            self.change_zoom()
+        return handled
 
 
 class OcrWorker(QThread):
@@ -172,7 +268,7 @@ class ScreenCaptureDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("自动读取基因 · 一键加入种子库")
         self.setStyleSheet(STYLE)
-        self.resize(820, 690)
+        self.resize(940, 820)
         self.setMinimumSize(740, 650)
         self.inventory = tuple(inventory)
         self.existing_genes = {item.genes for item in inventory}
@@ -209,7 +305,7 @@ class ScreenCaptureDialog(QDialog):
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.capture_frame)
         col = QVBoxLayout(self)
-        col.setSpacing(12)
+        col.setSpacing(10)
         col.addWidget(label("自动读取基因", "sectionTitle"))
         col.addWidget(label(f"当前作物：{crop_label}。自动寻找屏幕上的六位彩色基因，无需手动框选。", "muted", True))
         col.addWidget(label("① 开始自动读取   ② 选中或悬停种子   ③ 结束后核对、去重入库", "stepTitle", True))
@@ -239,10 +335,17 @@ class ScreenCaptureDialog(QDialog):
         col.addLayout(region_row)
         self.region_label = label("默认快速读取中间物品详情。选中箱内或背包种子，保持详情显示；位置不同时可切换「自动全屏定位」。", "muted", True)
         col.addWidget(self.region_label)
-        self.preview = label("区域预览 / 截图预览", "muted")
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setFixedHeight(75)
-        col.addWidget(self.preview)
+        preview_toolbar = QHBoxLayout()
+        preview_toolbar.addWidget(label("识别画面预览", "sectionTitle"))
+        preview_toolbar.addStretch()
+        self.preview_button = button("查看大图", self.show_large_preview, "small")
+        self.preview_button.setEnabled(False)
+        preview_toolbar.addWidget(self.preview_button)
+        col.addLayout(preview_toolbar)
+        self.preview = CapturePreview()
+        self.preview.image_changed.connect(self.preview_button.setEnabled)
+        self.preview.zoom_requested.connect(self.show_large_preview)
+        col.addWidget(self.preview, 2)
         source_row = QHBoxLayout()
         self.file_button = button("导入截图", self.import_image)
         self.paste_button = button("粘贴截图", self.paste_image)
@@ -361,6 +464,8 @@ class ScreenCaptureDialog(QDialog):
             self.capture_screen = self.selected_screen()
             self.capture_signature = None
             self.region = QRect()
+            self.preview.clear()
+            self.preview.setText("自动定位预览")
             self.update_source_hint()
             self.set_status("已切换读取屏幕，可以直接开始自动读取。")
             self.set_source_busy(self.worker is not None)
@@ -416,8 +521,17 @@ class ScreenCaptureDialog(QDialog):
             self.toggle_capture()
 
     def set_preview(self, image):
-        self.preview.setPixmap(QPixmap.fromImage(image).scaled(
-            700, 70, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.preview.set_image(image)
+
+    def show_large_preview(self):
+        image = self.preview.source_image()
+        if image.isNull():
+            return
+        dialog = CapturePreviewDialog(image, self)
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
 
     def select_region(self):
         if self.selecting or self.worker is not None:
@@ -651,8 +765,10 @@ class ScreenCaptureDialog(QDialog):
             detail = str(exc).strip() or "截图失败"
             self.set_status(f"无法读取当前画面：{detail}。请切回游戏后重试。", "画面读取失败，已停止")
             return
-        if (self.cached_generation == self.generation and self.cached_frame is not None and
-                image == self.cached_frame):
+        # A failed read is not evidence that this frame has no genes. Retry
+        # unchanged pixels too, so a transient OCR miss cannot freeze capture.
+        if (self.cached_genes and self.cached_generation == self.generation and
+                self.cached_frame is not None and image == self.cached_frame):
             # This image came from a new screen grab, not a duplicate callback
             # from the first OCR. Its pixels independently confirm the sample.
             if not self.cached_sampled:

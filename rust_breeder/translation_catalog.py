@@ -692,6 +692,18 @@ _TEMPLATE_ENTRIES += [
     ("项目培育记录无效：{detail}", "Invalid project breeding history: {detail}", "Недопустимая история селекции проекта: {detail}"),
 ]
 
+_ENTRIES += [
+    ("识别画面预览", "Capture preview", "Предпросмотр снимка"),
+    ("查看大图", "Enlarge", "Увеличить"),
+    ("识别画面 · 放大核对", "Capture · enlarged inspection", "Снимок · проверка с увеличением"),
+    ("双击预览查看大图，可放大核对六位基因。", "Double-click to enlarge and check all six genes.", "Дважды щёлкните, чтобы увеличить и проверить все шесть генов."),
+    ("放大核对完整六位基因；识别结果仍需在列表确认。", "Enlarge to check all six genes; confirm recognized results in the list.", "Увеличьте снимок для проверки всех шести генов; подтвердите результат в списке."),
+    ("适应窗口", "Fit to window", "По размеру окна"),
+    ("原图大小", "Original size", "Исходный размер"),
+    ("2 倍", "2×", "2×"),
+    ("4 倍", "4×", "4×"),
+]
+
 TRANSLATIONS = {
     "en": {source: english for source, english, russian in _ENTRIES},
     "ru": {source: russian for source, english, russian in _ENTRIES},

@@ -113,6 +113,85 @@ def check_package(window, app, base: Path):
                       parallel_first_batch_outputs=[s.expected_genes for s in first_steps],
                       parallel_final_output=next_report.waves[-1].steps[-1].expected_genes,
                       languages=['zh_CN', 'en', 'ru'], window_title=window.windowTitle())
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QFont, QImage, QPainter
+        from .capture_dialog import ScreenCaptureDialog, CapturePreviewDialog, image_png
+        image = QImage(720, 320, QImage.Format.Format_RGB32)
+        image.fill(QColor('#3b4241'))
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(QFont('Arial', 28, QFont.Weight.Bold))
+        for index, gene in enumerate('WHYXGW'):
+            rect = (62 + index * 100, 120, 74, 74)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor('#77a649' if gene in 'GYH' else '#bb6254'))
+            painter.drawEllipse(*rect)
+            painter.setPen(QColor('white'))
+            painter.drawText(*rect, Qt.AlignmentFlag.AlignCenter, gene)
+        painter.end()
+        capture = ScreenCaptureDialog((), 'Hemp', window)
+        large = None
+        try:
+            capture.set_preview(image)
+            capture.show()
+            app.processEvents()
+            assert capture.preview.height() >= 200, 'Capture preview is still a thumbnail.'
+            for code in ('zh_CN', 'en', 'ru'):
+                set_language(code)
+                localize_tree(capture)
+                app.processEvents()
+                assert capture.preview.source_image() == image, 'Preview changed source pixels.'
+                capture.grab().save(str(output / f'packaged-capture-{code}.png'))
+            large = CapturePreviewDialog(image, capture)
+            large.show()
+            large.zoom.setCurrentIndex(large.zoom.findData(2))
+            app.processEvents()
+            assert abs(large.preview.pixmap().width() - image.width() * 2) <= 2, 'Pixel zoom is incorrect.'
+            import os
+            import time
+            from . import screen_ocr
+            if os.name == 'nt' and os.environ.get('RUST_SEED_TEST_WINDOWS_OCR') == '1':
+                from dataclasses import replace
+                prepared = screen_ocr._prepare_badge_image(image_png(image))
+                assert prepared is not None, 'Packaged badge preparation failed.'
+                # Explicitly exercise the Windows fallback, independently of
+                # the game-glyph path checked below.
+                prepared = replace(prepared, glyphs=())
+                assert screen_ocr._recognize_prepared(prepared, screen_ocr._powershell_path(),
+                                                     time.monotonic() + 15) == ('WHYXGW',), 'Packaged Windows OCR fallback failed.'
+                result['capture_windows_ocr_fallback'] = True
+            fixture_folder = os.environ.get('RUST_SEED_TEST_OCR_FIXTURES')
+            if fixture_folder:
+                samples = {
+                    'rust-detail-genes.png': 'WHYXGW',
+                    'rust-wheat-detail-genes.png': 'GXGXGH',
+                    'rust-hemp-detail-genes.png': 'XYHYXH',
+                    'rust-hemp-ggyxhh-detail-genes.png': 'GGYXHH',
+                }
+                original_engine = screen_ocr._recognize_image_text
+                def unexpected_engine(*args, **kwargs):
+                    raise AssertionError('Clear game glyphs unexpectedly required Windows OCR.')
+                timings = {}
+                screen_ocr._recognize_image_text = unexpected_engine
+                try:
+                    for name, expected in samples.items():
+                        png = (Path(fixture_folder) / name).read_bytes()
+                        started = time.perf_counter()
+                        assert screen_ocr.recognize_gene_image(png, colored_only=True) == (expected,), f'Packaged game-glyph recognition failed: {name}'
+                        timings[expected] = round((time.perf_counter() - started) * 1000, 2)
+                finally:
+                    screen_ocr._recognize_image_text = original_engine
+                result['capture_real_game_samples'] = list(samples.values())
+                result['capture_game_glyphs_without_windows_ocr'] = True
+                result['capture_gene_strip_ms'] = timings
+            result['capture_preview_and_zoom'] = True
+        finally:
+            if large is not None:
+                large.close()
+                large.deleteLater()
+            capture.close()
+            capture.deleteLater()
+            set_language('zh_CN')
         result['ok'] = True
     except Exception as exc:
         result.update(error=f'{type(exc).__name__}: {exc}', traceback=traceback.format_exc())
