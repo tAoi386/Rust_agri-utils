@@ -555,6 +555,55 @@ class CaptureGuiTests(unittest.TestCase):
                 self.assertEqual(sync.call_count, table_updates)
                 self.assertIn("已确认 WHYXGW", dialog.control.status.text())
 
+    def test_empty_result_retries_unchanged_frame_and_still_needs_two_samples(self):
+        image = self.image()
+
+        class Screen:
+            grabs = 0
+
+            def geometry(self):
+                return QRect(0, 0, 1920, 1080)
+
+            def grabWindow(self, *args):
+                self.grabs += 1
+                return QPixmap.fromImage(image)
+
+        screen = Screen()
+        with patch.object(QApplication, "screens", return_value=[screen]), \
+                patch.object(QApplication, "topLevelWindows", return_value=[]):
+            dialog = self.new_dialog()
+            dialog.running = True
+            with patch.object(dialog.timer, "start"), \
+                    patch.object(capture, "recognize_gene_image", side_effect=[(), ("GGYXHH",)]) as recognize:
+                dialog.capture_frame()
+                self.wait_until(lambda: dialog.worker is None)
+                self.assertEqual(recognize.call_count, 1)
+                self.assertEqual(dialog.previous_frame, set())
+                self.assertEqual(dialog.table.rowCount(), 0)
+
+                # The same independently captured pixels must retry OCR after
+                # the miss, rather than cache an empty result indefinitely.
+                dialog.capture_frame()
+                self.wait_until(lambda: dialog.worker is None)
+                self.assertEqual(recognize.call_count, 2)
+                self.assertEqual(dialog.previous_frame, {"GGYXHH"})
+                self.assertEqual(dialog.table.rowCount(), 0)
+                self.assertFalse(dialog.cached_sampled)
+
+                # A third independent grab confirms the successful reading;
+                # the failed first sample cannot count toward confirmation.
+                dialog.capture_frame()
+                self.assertEqual(screen.grabs, 3)
+                self.assertEqual(recognize.call_count, 2)
+                self.assertEqual([row.genes for row in dialog.session.candidates], ["GGYXHH"])
+                self.assertTrue(dialog.cached_sampled)
+                self.assertIn("已确认 GGYXHH", dialog.control.status.text())
+
+                dialog.capture_frame()
+                self.assertEqual(screen.grabs, 4)
+                self.assertEqual(recognize.call_count, 2)
+                self.assertEqual(len(dialog.session.candidates), 1)
+
     def test_even_one_changed_pixel_invalidates_cache_and_new_gene_needs_two_samples(self):
         first = self.image()
         second = first.copy()
@@ -593,9 +642,7 @@ class CaptureGuiTests(unittest.TestCase):
                 self.assertEqual(recognize.call_count, 2)
                 self.assertEqual(screen.grabs, 4)
 
-    @unittest.skipUnless(os.name == "nt" and os.environ.get("RUST_SEED_TEST_WINDOWS_OCR") == "1",
-                         "Opt-in actual Windows OCR capture sequence.")
-    def test_real_windows_ocr_switches_to_second_seed_with_moving_background(self):
+    def test_real_game_capture_switches_to_second_seed_with_moving_background(self):
         from PySide6.QtGui import QColor, QPainter
 
         def detail_image(fixture):
@@ -633,7 +680,7 @@ class CaptureGuiTests(unittest.TestCase):
             dialog = self.new_dialog([original])
             dialog.running = True
             # Only screen capture and the timer are replaced. OcrWorker and
-            # the Windows OCR engine use the real original-pixel PNGs.
+            # the recognizer use the real original-pixel game PNGs.
             with patch.object(dialog.timer, "start"):
                 for index in range(len(frames)):
                     dialog.capture_frame()
@@ -648,6 +695,74 @@ class CaptureGuiTests(unittest.TestCase):
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.assertEqual([(row.genes, row.quantity) for row in dialog.import_plan.inventory],
                          [("YYYGGG", 7), ("WHYXGW", 1), ("XYHYXH", 1)])
+
+    def test_real_game_capture_confirms_four_seeds_without_windows_ocr(self):
+        from PySide6.QtGui import QColor, QPainter
+        from rust_breeder import screen_ocr
+
+        samples = (
+            ("rust-detail-genes.png", "WHYXGW"),
+            ("rust-hemp-detail-genes.png", "XYHYXH"),
+            ("rust-hemp-ggyxhh-detail-genes.png", "GGYXHH"),
+            ("rust-wheat-detail-genes.png", "GXGXGH"),
+        )
+        frames = []
+        for fixture, genes in samples:
+            for _ in range(2):
+                image = QImage(538, 357, QImage.Format.Format_RGB32)
+                image.fill(QColor("#474641"))
+                glyphs = QImage(str(PROJECT_ROOT / "tests/fixtures" / fixture))
+                self.assertFalse(glyphs.isNull(), fixture)
+                painter = QPainter(image)
+                painter.drawImage(143, 137, glyphs)
+                painter.end()
+                # Every sample differs outside the genes. The second sample
+                # must run the real recognizer, rather than reuse exact cache.
+                shade = 50 + len(frames) * 3
+                image.setPixelColor(12, 12, QColor(shade, shade, shade))
+                frames.append(image)
+        frames.append(frames[-1].copy())
+
+        class Screen:
+            grabs = 0
+
+            def geometry(self):
+                return QRect(0, 0, 1920, 1080)
+
+            def grabWindow(self, *args):
+                image = frames[self.grabs]
+                self.grabs += 1
+                return QPixmap.fromImage(image)
+
+        original = InventoryItem("existing", "YYYGGG", 7, "Existing seed")
+        expected_genes = [genes for _, genes in samples]
+        screen = Screen()
+        with patch.object(QApplication, "screens", return_value=[screen]), \
+                patch.object(QApplication, "topLevelWindows", return_value=[]):
+            dialog = self.new_dialog([original])
+            dialog.running = True
+            with patch.object(dialog.timer, "start"), \
+                    patch.object(screen_ocr, "_recognize_image_text", side_effect=AssertionError("Unexpected Windows OCR fallback")) as windows_ocr, \
+                    patch.object(capture, "recognize_gene_image", wraps=capture.recognize_gene_image) as recognize:
+                for index in range(len(frames)):
+                    dialog.capture_frame()
+                    self.wait_until(lambda: dialog.worker is None, seconds=10)
+                    # A newly seen seed stays pending until the next genuine
+                    # screen grab confirms the same full six-position code.
+                    count = min((index + 1) // 2, len(samples))
+                    self.assertEqual([row.genes for row in dialog.session.candidates], expected_genes[:count])
+                    self.assertEqual(dialog.inventory, (original,))
+                self.assertEqual(screen.grabs, 9)
+                self.assertEqual(recognize.call_count, 8)
+                windows_ocr.assert_not_called()
+                self.assertIn("已确认 GXGXGH", dialog.control.status.text())
+            dialog.stop_capture()
+            dialog.commit_import()
+        self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual(dialog.import_plan.inventory[0], original)
+        self.assertEqual([(row.genes, row.quantity) for row in dialog.import_plan.inventory],
+                         [("YYYGGG", 7)] + [(genes, 1) for genes in expected_genes])
+        self.assertEqual(dialog.import_plan.added_count, 4)
 
     def test_changing_source_discards_cached_pixels_and_previous_confirmation(self):
         image = self.image()

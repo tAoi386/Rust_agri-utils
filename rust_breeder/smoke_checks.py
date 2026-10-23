@@ -148,21 +148,42 @@ def check_package(window, app, base: Path):
             app.processEvents()
             assert abs(large.preview.pixmap().width() - image.width() * 2) <= 2, 'Pixel zoom is incorrect.'
             import os
+            import time
+            from . import screen_ocr
             if os.name == 'nt' and os.environ.get('RUST_SEED_TEST_WINDOWS_OCR') == '1':
-                from .screen_ocr import recognize_gene_image
-                assert recognize_gene_image(image_png(image), colored_only=True) == ('WHYXGW',), 'Packaged Windows OCR failed.'
-                result['capture_real_ocr'] = True
-                fixture_folder = os.environ.get('RUST_SEED_TEST_OCR_FIXTURES')
-                if fixture_folder:
-                    samples = {
-                        'rust-detail-genes.png': 'WHYXGW',
-                        'rust-wheat-detail-genes.png': 'GXGXGH',
-                        'rust-hemp-detail-genes.png': 'XYHYXH',
-                    }
+                from dataclasses import replace
+                prepared = screen_ocr._prepare_badge_image(image_png(image))
+                assert prepared is not None, 'Packaged badge preparation failed.'
+                # Explicitly exercise the Windows fallback, independently of
+                # the game-glyph path checked below.
+                prepared = replace(prepared, glyphs=())
+                assert screen_ocr._recognize_prepared(prepared, screen_ocr._powershell_path(),
+                                                     time.monotonic() + 15) == ('WHYXGW',), 'Packaged Windows OCR fallback failed.'
+                result['capture_windows_ocr_fallback'] = True
+            fixture_folder = os.environ.get('RUST_SEED_TEST_OCR_FIXTURES')
+            if fixture_folder:
+                samples = {
+                    'rust-detail-genes.png': 'WHYXGW',
+                    'rust-wheat-detail-genes.png': 'GXGXGH',
+                    'rust-hemp-detail-genes.png': 'XYHYXH',
+                    'rust-hemp-ggyxhh-detail-genes.png': 'GGYXHH',
+                }
+                original_engine = screen_ocr._recognize_image_text
+                def unexpected_engine(*args, **kwargs):
+                    raise AssertionError('Clear game glyphs unexpectedly required Windows OCR.')
+                timings = {}
+                screen_ocr._recognize_image_text = unexpected_engine
+                try:
                     for name, expected in samples.items():
                         png = (Path(fixture_folder) / name).read_bytes()
-                        assert recognize_gene_image(png, colored_only=True) == (expected,), f'Packaged real-game OCR failed: {name}'
-                    result['capture_real_game_samples'] = list(samples.values())
+                        started = time.perf_counter()
+                        assert screen_ocr.recognize_gene_image(png, colored_only=True) == (expected,), f'Packaged game-glyph recognition failed: {name}'
+                        timings[expected] = round((time.perf_counter() - started) * 1000, 2)
+                finally:
+                    screen_ocr._recognize_image_text = original_engine
+                result['capture_real_game_samples'] = list(samples.values())
+                result['capture_game_glyphs_without_windows_ocr'] = True
+                result['capture_gene_strip_ms'] = timings
             result['capture_preview_and_zoom'] = True
         finally:
             if large is not None:

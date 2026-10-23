@@ -765,8 +765,10 @@ class ScreenCaptureDialog(QDialog):
             detail = str(exc).strip() or "截图失败"
             self.set_status(f"无法读取当前画面：{detail}。请切回游戏后重试。", "画面读取失败，已停止")
             return
-        if (self.cached_generation == self.generation and self.cached_frame is not None and
-                image == self.cached_frame):
+        # A failed read is not evidence that this frame has no genes. Retry
+        # unchanged pixels too, so a transient OCR miss cannot freeze capture.
+        if (self.cached_genes and self.cached_generation == self.generation and
+                self.cached_frame is not None and image == self.cached_frame):
             # This image came from a new screen grab, not a duplicate callback
             # from the first OCR. Its pixels independently confirm the sample.
             if not self.cached_sampled:
