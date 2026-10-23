@@ -2,9 +2,14 @@
 
 # Rust Growing Toolkit
 
-**V3.0.3 · Windows desktop application**
+**V3.0.4 · Windows desktop application**
 
 Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com).
+
+## V3.0.4 recognition fix
+
+- Fixed a missed gene row after switching to another seed, verified with the real game sample `XYHYXH`.
+- If the first OCR pass returns no text, resize the glyph image and retry once. Six-letter, color and two-observation checks remain in place; repeated recognition does not increase stock.
 
 ## V3.0.3 recognition improvements
 

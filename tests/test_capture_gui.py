@@ -593,6 +593,62 @@ class CaptureGuiTests(unittest.TestCase):
                 self.assertEqual(recognize.call_count, 2)
                 self.assertEqual(screen.grabs, 4)
 
+    @unittest.skipUnless(os.name == "nt" and os.environ.get("RUST_SEED_TEST_WINDOWS_OCR") == "1",
+                         "Opt-in actual Windows OCR capture sequence.")
+    def test_real_windows_ocr_switches_to_second_seed_with_moving_background(self):
+        from PySide6.QtGui import QColor, QPainter
+
+        def detail_image(fixture):
+            image = QImage(538, 357, QImage.Format.Format_RGB32)
+            image.fill(QColor("#474641"))
+            glyphs = QImage(str(PROJECT_ROOT / "tests/fixtures" / fixture))
+            self.assertFalse(glyphs.isNull())
+            painter = QPainter(image)
+            # Original screenshot pixels, placed at the default detail ROI.
+            painter.drawImage(143, 137, glyphs)
+            painter.end()
+            return image
+
+        first = detail_image("rust-detail-genes.png")
+        second = detail_image("rust-hemp-detail-genes.png")
+        moving = second.copy()
+        moving.setPixelColor(12, 12, QColor("#565550"))
+        frames = [first, first.copy(), second, moving, moving.copy()]
+
+        class Screen:
+            grabs = 0
+
+            def geometry(self):
+                return QRect(0, 0, 1920, 1080)
+
+            def grabWindow(self, *args):
+                image = frames[self.grabs]
+                self.grabs += 1
+                return QPixmap.fromImage(image)
+
+        original = InventoryItem("existing", "YYYGGG", 7, "Existing seed")
+        screen = Screen()
+        with patch.object(QApplication, "screens", return_value=[screen]), \
+                patch.object(QApplication, "topLevelWindows", return_value=[]):
+            dialog = self.new_dialog([original])
+            dialog.running = True
+            # Only screen capture and the timer are replaced. OcrWorker and
+            # the Windows OCR engine use the real original-pixel PNGs.
+            with patch.object(dialog.timer, "start"):
+                for index in range(len(frames)):
+                    dialog.capture_frame()
+                    self.wait_until(lambda: dialog.worker is None, seconds=10)
+                    expected = [] if index == 0 else ["WHYXGW"] if index < 3 else ["WHYXGW", "XYHYXH"]
+                    self.assertEqual([row.genes for row in dialog.session.candidates], expected)
+                    self.assertEqual(dialog.inventory, (original,))
+                self.assertEqual(screen.grabs, 5)
+                self.assertIn("XYHYXH", dialog.control.status.text())
+            dialog.stop_capture()
+            dialog.commit_import()
+        self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual([(row.genes, row.quantity) for row in dialog.import_plan.inventory],
+                         [("YYYGGG", 7), ("WHYXGW", 1), ("XYHYXH", 1)])
+
     def test_changing_source_discards_cached_pixels_and_previous_confirmation(self):
         image = self.image()
 

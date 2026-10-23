@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PNG = b"\x89PNG\r\n\x1a\nmock-image-data"
 RUST_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-detail-genes.png"
 RUST_WHEAT_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-wheat-detail-genes.png"
+RUST_HEMP_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-hemp-detail-genes.png"
 
 
 class GeneOcrParserTests(unittest.TestCase):
@@ -166,6 +167,13 @@ class GeneImagePreparationTests(unittest.TestCase):
         prepared = screen_ocr._prepare_badge_image(RUST_WHEAT_DETAIL_FIXTURE.read_bytes())
         self.assertIsNotNone(prepared)
         self.assertEqual(prepared.colors, ((1, 2, 1, 2, 1, 1),))
+
+    def test_real_hemp_detail_keeps_all_six_colored_positions(self):
+        # Anonymous six-gene strip only. Windows ignored the prepared large
+        # XYHYXH row even though all six letter positions were located.
+        prepared = screen_ocr._prepare_badge_image(RUST_HEMP_DETAIL_FIXTURE.read_bytes())
+        self.assertIsNotNone(prepared)
+        self.assertEqual(prepared.colors, ((2, 1, 1, 1, 2, 1),))
 
     def test_small_white_badges_keep_one_interpretation_across_all_six_positions(self):
         for genes in ("WHYXGW", "HHHHHH", "GGGGGG"):
@@ -360,6 +368,20 @@ class WindowsOcrProcessTests(unittest.TestCase):
         self.assertGreater(self.process.call_args.kwargs["timeout"], 0)
         self.assertLessEqual(self.process.call_args.kwargs["timeout"], 15)
 
+    def test_ignored_large_glyph_row_retries_at_a_smaller_raster(self):
+        colors = ((2, 1, 1, 1, 2, 1),)
+        prepared = screen_ocr._PreparedGenes(PNG, colors)
+        self.fallback.return_value = prepared
+        retry = screen_ocr._PreparedGenes(PNG + b"resampled", colors, 96.0)
+        self.process.side_effect = [
+            self.result({"text": ""}), self.result({"text": ""}),
+            self.result({"text": "X Y H Y X H", "words": [{"text": "XYHYXH", "x": 15, "y": 30, "width": 250, "height": 36}]}),
+        ]
+        with patch.object(screen_ocr, "_rescale_prepared_for_retry", return_value=retry) as resample:
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("XYHYXH",))
+        resample.assert_called_once_with(prepared, scale=0.75)
+        self.assertEqual(self.process.call_count, 3)
+
     def test_retry_does_not_replace_complete_but_color_conflicting_genes(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
         self.process.side_effect = [self.result({"text": ""}), self.result({"text": "GYYGXX"})]
@@ -493,6 +515,13 @@ class WindowsOcrRealBadgeTests(unittest.TestCase):
             for colored_only in (True, False):
                 with self.subTest(scale=scale, colored_only=colored_only):
                     self.assertEqual(screen_ocr.recognize_gene_image(bytes(buffer.data()), colored_only=colored_only), ("GXGXGH",))
+
+    def test_real_hemp_detail_does_not_silently_ignore_the_second_seed(self):
+        GeneImagePreparationTests.setUpClass()
+        image = RUST_HEMP_DETAIL_FIXTURE.read_bytes()
+        for colored_only in (True, False):
+            with self.subTest(colored_only=colored_only):
+                self.assertEqual(screen_ocr.recognize_gene_image(image, colored_only=colored_only), ("XYHYXH",))
 
     def test_automatic_4k_scan_recognizes_only_colored_genes(self):
         GeneImagePreparationTests.setUpClass()

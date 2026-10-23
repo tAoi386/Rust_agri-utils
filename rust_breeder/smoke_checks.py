@@ -152,6 +152,17 @@ def check_package(window, app, base: Path):
                 from .screen_ocr import recognize_gene_image
                 assert recognize_gene_image(image_png(image), colored_only=True) == ('WHYXGW',), 'Packaged Windows OCR failed.'
                 result['capture_real_ocr'] = True
+                fixture_folder = os.environ.get('RUST_SEED_TEST_OCR_FIXTURES')
+                if fixture_folder:
+                    samples = {
+                        'rust-detail-genes.png': 'WHYXGW',
+                        'rust-wheat-detail-genes.png': 'GXGXGH',
+                        'rust-hemp-detail-genes.png': 'XYHYXH',
+                    }
+                    for name, expected in samples.items():
+                        png = (Path(fixture_folder) / name).read_bytes()
+                        assert recognize_gene_image(png, colored_only=True) == (expected,), f'Packaged real-game OCR failed: {name}'
+                    result['capture_real_game_samples'] = list(samples.values())
             result['capture_preview_and_zoom'] = True
         finally:
             if large is not None:

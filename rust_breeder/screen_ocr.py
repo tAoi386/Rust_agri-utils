@@ -695,7 +695,10 @@ def _recognize_prepared(prepared: _PreparedGenes, executable: Path, deadline: fl
         # A complete but color-conflicting reading must stay rejected. A retry
         # is only for letters the engine could not form into a six-gene row.
         return genes
-    retry = _rescale_prepared_for_retry(prepared)
+    # Windows sometimes ignores a whole large-glyph row as a graphic. A
+    # smaller raster recovers the real hemp detail strip in that case; a row
+    # with fragmented text instead benefits from the existing modest upscale.
+    retry = _rescale_prepared_for_retry(prepared, scale=0.75 if not enhanced.strip() else 1.25)
     if retry is None:
         return ()
     remaining = deadline - time.monotonic()
@@ -706,7 +709,7 @@ def _recognize_prepared(prepared: _PreparedGenes, executable: Path, deadline: fl
     return _validated_colored_genes(enhanced, retry)
 
 
-def _rescale_prepared_for_retry(prepared: _PreparedGenes) -> _PreparedGenes | None:
+def _rescale_prepared_for_retry(prepared: _PreparedGenes, *, scale: float = 1.25) -> _PreparedGenes | None:
     """Retry unreadable small text at another size, without replacing glyphs.
 
     Windows can miss a clear six-glyph row at a particular raster size. A
@@ -721,7 +724,8 @@ def _rescale_prepared_for_retry(prepared: _PreparedGenes) -> _PreparedGenes | No
         return None
     # Prepared batches already stay below 2400 px. Do not make a tall batch
     # exceed the Windows engine limit just to retry a missed small text row.
-    scale = 1.25 if max(source.width(), source.height()) * 1.25 <= 2400 else 0.8
+    if max(source.width(), source.height()) * scale > 2400:
+        scale = 0.8
     image = source.scaled(
         round(source.width() * scale), round(source.height() * scale),
         Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
