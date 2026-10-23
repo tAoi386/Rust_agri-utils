@@ -113,6 +113,53 @@ def check_package(window, app, base: Path):
                       parallel_first_batch_outputs=[s.expected_genes for s in first_steps],
                       parallel_final_output=next_report.waves[-1].steps[-1].expected_genes,
                       languages=['zh_CN', 'en', 'ru'], window_title=window.windowTitle())
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QFont, QImage, QPainter
+        from .capture_dialog import ScreenCaptureDialog, CapturePreviewDialog, image_png
+        image = QImage(720, 320, QImage.Format.Format_RGB32)
+        image.fill(QColor('#3b4241'))
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(QFont('Arial', 28, QFont.Weight.Bold))
+        for index, gene in enumerate('WHYXGW'):
+            rect = (62 + index * 100, 120, 74, 74)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor('#77a649' if gene in 'GYH' else '#bb6254'))
+            painter.drawEllipse(*rect)
+            painter.setPen(QColor('white'))
+            painter.drawText(*rect, Qt.AlignmentFlag.AlignCenter, gene)
+        painter.end()
+        capture = ScreenCaptureDialog((), 'Hemp', window)
+        large = None
+        try:
+            capture.set_preview(image)
+            capture.show()
+            app.processEvents()
+            assert capture.preview.height() >= 200, 'Capture preview is still a thumbnail.'
+            for code in ('zh_CN', 'en', 'ru'):
+                set_language(code)
+                localize_tree(capture)
+                app.processEvents()
+                assert capture.preview.source_image() == image, 'Preview changed source pixels.'
+                capture.grab().save(str(output / f'packaged-capture-{code}.png'))
+            large = CapturePreviewDialog(image, capture)
+            large.show()
+            large.zoom.setCurrentIndex(large.zoom.findData(2))
+            app.processEvents()
+            assert abs(large.preview.pixmap().width() - image.width() * 2) <= 2, 'Pixel zoom is incorrect.'
+            import os
+            if os.name == 'nt' and os.environ.get('RUST_SEED_TEST_WINDOWS_OCR') == '1':
+                from .screen_ocr import recognize_gene_image
+                assert recognize_gene_image(image_png(image), colored_only=True) == ('WHYXGW',), 'Packaged Windows OCR failed.'
+                result['capture_real_ocr'] = True
+            result['capture_preview_and_zoom'] = True
+        finally:
+            if large is not None:
+                large.close()
+                large.deleteLater()
+            capture.close()
+            capture.deleteLater()
+            set_language('zh_CN')
         result['ok'] = True
     except Exception as exc:
         result.update(error=f'{type(exc).__name__}: {exc}', traceback=traceback.format_exc())

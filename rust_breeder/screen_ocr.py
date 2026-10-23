@@ -689,6 +689,48 @@ def _recognize_prepared(prepared: _PreparedGenes, executable: Path, deadline: fl
     if remaining <= 0:
         raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
     enhanced = _recognize_image_text(prepared.image, executable, remaining)
-    if time.monotonic() > deadline:
+    _check_deadline(deadline)
+    genes = _validated_colored_genes(enhanced, prepared)
+    if genes or extract_gene_sequences(enhanced):
+        # A complete but color-conflicting reading must stay rejected. A retry
+        # is only for letters the engine could not form into a six-gene row.
+        return genes
+    retry = _rescale_prepared_for_retry(prepared)
+    if retry is None:
+        return ()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
         raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
-    return _validated_colored_genes(enhanced, prepared)
+    enhanced = _recognize_image_text(retry.image, executable, remaining)
+    _check_deadline(deadline)
+    return _validated_colored_genes(enhanced, retry)
+
+
+def _rescale_prepared_for_retry(prepared: _PreparedGenes) -> _PreparedGenes | None:
+    """Retry unreadable small text at another size, without replacing glyphs.
+
+    Windows can miss a clear six-glyph row at a particular raster size. A
+    modest resampling recovers the real 125%-UI-scale detail strip while
+    retaining its original letter shapes, color signatures and row positions.
+    """
+    from PySide6.QtCore import QBuffer, QIODevice, Qt
+    from PySide6.QtGui import QImage
+
+    source = QImage.fromData(prepared.image, "PNG")
+    if source.isNull():
+        return None
+    # Prepared batches already stay below 2400 px. Do not make a tall batch
+    # exceed the Windows engine limit just to retry a missed small text row.
+    scale = 1.25 if max(source.width(), source.height()) * 1.25 <= 2400 else 0.8
+    image = source.scaled(
+        round(source.width() * scale), round(source.height() * scale),
+        Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
+    )
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if image.isNull() or not image.save(buffer, "PNG"):
+        return None
+    return _PreparedGenes(
+        bytes(buffer.data()), prepared.colors,
+        prepared.row_height * image.height() / source.height(),
+    )
