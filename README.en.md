@@ -2,9 +2,18 @@
 
 # Rust Growing Toolkit
 
-**V3.0.5 · Windows desktop application**
+**V3.1.0 · Windows desktop application**
 
 Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com).
+
+## V3.1.0 preferred gene combinations
+
+- After adding your library, use the one-click filter to inspect all seven six-gene Y/G count combinations: 6Y, 5Y1G, 4Y2G, 3Y3G, 2Y4G, 1Y5G and 6G. No manual target entry is needed.
+- Vertically arranged cards show existing target clones, complete model-reachable routes, estimated rounds or batches and plant use. Selecting an available card directly places the center and donors and displays the route. Sequential and parallel filters use their respective settings.
+- Search has time and scope limits. “Not found yet” does not mean impossible; a combination is marked unreachable only when this can be proved. Cards without an executable route have no selection action.
+- Filtering and placement previews do not consume stock. Filter again after changing inventory or planning settings. Actual breeding results must still be checked against each round or planter prediction before confirmation updates stock.
+
+![Preferred combinations from the current library](resources/screenshots/targets-en.png)
 
 ## V3.0.5 glyph recognition
 
@@ -55,7 +64,7 @@ Administrator privileges are usually unnecessary. If the program does not start,
 
 The interface supports **Simplified Chinese, English and Russian**. Use the application's New Project and Open Project actions to manage projects. Changes save automatically; there is no need to choose a save folder. Save Now writes the current work immediately.
 
-Each project contains one crop. Enter known six-letter genes, names and the number of clones actually available. Grow unknown seeds in the game before recording their genes. Seed numbers remain consistent across both breeding pages. The default goal is **3G3Y in any order**: both `GGYYYG` and `YGYGYG` qualify. Exact gene order is also available.
+Each project contains one crop. Enter known six-letter genes, names and the number of clones actually available. Grow unknown seeds in the game before recording their genes. Seed numbers remain consistent across both breeding pages. Use the one-click filter to select a **Y/G combination** supported by your current library. Each combination contains six genes in any order: for **3Y3G**, both `GGYYYG` and `YGYGYG` qualify. Saved targets and pending assignments from older projects are retained.
 
 ## Interface preview
 
@@ -73,9 +82,9 @@ These screenshots use anonymous demonstration data and show sequential and paral
 
 ### Sequential breeding
 
-1. Enter or recognize your gene library. Set the target, planning depth and expected number of clones produced per round.
+1. Enter or recognize your gene library. Set the planning depth and expected number of clones produced per round.
 2. Choose a preference: fewer rounds, fewer total plants, or **Smart matching (based on your gene library)**. Automatic mode compares recipients and donors together; you can also pin a recipient.
-3. Start automatic selection. The first planting layout appears only after a complete route to the target has been found. A failed search reports its limits and shows a brief floating notice.
+3. Open the one-click filter and inspect the vertical combination cards. Reachable cards show estimated rounds and plant use; selecting one directly applies the first layout without manual target entry or a second search. Existing target clones can be kept directly. Cards with no route found have no selection action.
 4. Follow the layout: plant the recipient in central slot 5 first. Add the specified donors as the recipient approaches crossbreeding; leave unused slots empty. The central cell identifies the seed number, its current genes and the predicted result.
 5. After crossbreeding and taking clones, enter the observed six-letter genes and the actual clone quantity. Confirm the round after verification. The application deducts its scheduled plants, adds the observed clones and replans from the actual remaining stock.
 
@@ -83,7 +92,7 @@ A prediction is not an acquired plant. **Observed genes must match the predictio
 
 ### Parallel breeding
 
-Choose **2–6 planters** and designate the main planter. The default is three planters with planter 1 as the main one. Smart planning can prepare future recipients or donors in auxiliary planters while advancing the target route in the main planter. Each planter has its own layout, prediction, observation and clone quantity. Supply notes identify the later batch and planter that need each output.
+Choose **2–6 planters** and designate the main planter. The default is three planters with planter 1 as the main one. Open the one-click filter to compare combinations and estimated batches under these planter settings. Selecting a reachable card applies the first batch automatically; Smart Planning remains available for subsequent replanning. Smart planning can prepare future recipients or donors in auxiliary planters while advancing the target route in the main planter. Each planter has its own layout, prediction, observation and clone quantity. Supply notes identify the later batch and planter that need each output.
 
 All planters in a batch share the same real inventory. One plant cannot be allocated twice, and an output that has not yet been grown cannot be used elsewhere in the same batch. **Every active planter must pass observation checks before the whole batch is confirmed atomically.** The next batch is then replanned using actual outputs. Unneeded planters stay empty.
 
@@ -97,7 +106,7 @@ Parallel planters can prepare intermediate clones together, but three planters d
 
 Read Genes from Game processes the gene information currently visible on the screen; it does not require a recorded video. The main window hides during capture and returns when capture ends. The default view looks for the item details near the screen center. You can adjust the region or import an image. Show all six genes, wait for confirmation, move to the next plant, then review the recognized list before importing it.
 
-Recognition uses the local Windows OCR components on Windows 10/11. It does not read game memory or automate in-game actions. Blur, occlusion and background effects can cause mistakes, so review the results. Manual and bulk entry remain available when OCR is unavailable.
+Game glyphs are recognized directly on the local computer, with the local Windows OCR components on Windows 10/11 as a fallback for uncertain images. Recognition does not read game memory or automate in-game actions. Blur, occlusion and background effects can cause mistakes, so review the results. Manual and bulk entry remain available when OCR is unavailable.
 
 Deduplication uses the **exact ordered six-letter genotype**. Repeated scans do not increase stock. If you obtain more clones with an existing genotype, edit its available quantity. Quantities represent real plants available for future assignments, not the number of sightings of a genotype.
 
@@ -113,7 +122,7 @@ Logs remain local in `data/logs/runtime.log` and `data/logs/native-crash.log`. I
 
 ## Anonymous example
 
-[examples/parallel.json](examples/parallel.json) contains a three-planter example with no personal data or pending work. Alternatively, create a project and paste these rows into bulk entry, with one clone per row and the any-order 3G3Y goal:
+[examples/parallel.json](examples/parallel.json) contains a three-planter example with no personal data or pending work. Alternatively, create a project and paste these rows into bulk entry, with one clone per row, then choose the any-order 3Y3G card:
 
 ```text
 HGYGHG 1 Demo01

@@ -22,6 +22,7 @@ from .models import InventoryItem, Target, normalize_genes
 from .storage import load_project, save_project, validate_project, ProjectError
 from .project_library import ProjectLibrary
 from .capture_dialog import ScreenCaptureDialog
+from .target_controller import TargetDiscoveryController
 from .guidance import GuidedWorkspace
 from .parallel_guidance import ParallelWorkspace
 from .gui_runtime import install_gui_collector
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
         self.autosave_timer.setSingleShot(True)
         self.autosave_timer.timeout.connect(self.autosave)
         self.make_ui()
+        self.target_discovery = TargetDiscoveryController(self)
         self.loading = False
         if restore:
             self.restore_local_work()
@@ -161,7 +163,14 @@ class MainWindow(QMainWindow):
         self.language_combo.setCurrentIndex(self.language_combo.findData(code))
         self.language_combo.blockSignals(False)
 
+    def open_target_selector(self, page=None):
+        page = page or (self.parallel if self.workspaces.currentIndex() == 1 else self.guided)
+        return self.target_discovery.open(page)
+
     def work_busy(self, exclude=None):
+        discovery = getattr(self, 'target_discovery', None)
+        if discovery is not None and discovery.worker is not None:
+            return True
         return any(page is not exclude and getattr(page, 'worker', None) is not None for page in self._pages)
 
     def is_searching(self):
@@ -177,12 +186,16 @@ class MainWindow(QMainWindow):
 
     def update_locks(self):
         busy = self.work_busy()
+        discovery = getattr(self, 'target_discovery', None)
+        discovering = discovery is not None and discovery.worker is not None
+        current_tab = self.workspaces.currentIndex()
         pending_pages = [page for page in self._pages if page.state.pending is not None]
         can_switch_project = not busy and not pending_pages
         for control in (self.new_button, self.open_button, self.new_action, self.open_action):
             control.setEnabled(can_switch_project)
         for index, page in enumerate(self._pages):
-            self.workspaces.setTabEnabled(index, not self.work_busy(exclude=page)
+            self.workspaces.setTabEnabled(index, index == current_tab if discovering else
+                                           not self.work_busy(exclude=page)
                                            and not any(other is not page for other in pending_pages))
         self.crop_combo.setEnabled(not self.inventory and not busy and not pending_pages)
 
@@ -443,6 +456,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         workers = [page.worker for page in self._pages if page.worker is not None]
+        if self.target_discovery.worker is not None:
+            workers.append(self.target_discovery.worker)
         for worker in workers:
             worker.requestInterruption()
         for worker in workers:

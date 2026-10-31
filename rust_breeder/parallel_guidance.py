@@ -176,17 +176,23 @@ class ParallelWorkspace(QWidget):
 
         setup = QHBoxLayout()
         setup.setSpacing(7)
-        setup.addWidget(label("目标", "stepTitle"))
         self.target_edit = QLineEdit("YYYGGG")
         self.target_edit.setObjectName("geneInput")
         self.target_edit.setMaximumWidth(96)
         self.target_edit.textChanged.connect(self.change_target)
-        setup.addWidget(self.target_edit)
+        self.target_edit.setParent(self)
+        self.target_edit.hide()
         self.mode = QComboBox()
         self.mode.addItem("按数量 · 顺序不限", "counts")
         self.mode.addItem("逐位 · 固定顺序", "exact")
         self.mode.currentIndexChanged.connect(self.change_target)
-        setup.addWidget(self.mode)
+        self.mode.setParent(self)
+        self.mode.hide()
+        self.select_target_button = button("一键筛选", lambda: self.owner.open_target_selector(self), "primary")
+        self.select_target_button.setObjectName("targetSelectorButton")
+        setup.addWidget(self.select_target_button)
+        self.selected_target_label = label("", "stepTitle", True)
+        setup.addWidget(self.selected_target_label)
         setup.addSpacing(5)
         setup.addWidget(label("种植箱"))
         self.box_count = QSpinBox()
@@ -459,7 +465,8 @@ class ParallelWorkspace(QWidget):
                 if had_pending:
                     self.status.setText("目标已变化，旧的多箱安排已撤销；请重新规划。")
         except ValueError:
-            pass
+            target = None
+        self.selected_target_label.setText(f"当前选择：{target.label}" if target is not None else "请选择优选组合")
         self.target_edit.setText(self.owner.target_edit.text())
         self.mode.setCurrentIndex(self.mode.findData(self.owner.mode_combo.currentData()))
         signature = tuple(self.owner.inventory)
@@ -649,7 +656,7 @@ class ParallelWorkspace(QWidget):
             self.route_label.setText("已恢复上次本批安排；完成后将按所有箱实测重新调配。")
         else:
             self.route_label.setText("找到完整路线后，会显示预计批数和各箱的供苗关系。")
-        for control in (self.target_edit, self.mode, self.objective, self.box_count, self.main_box, self.max_waves, self.clone_yield):
+        for control in (self.select_target_button, self.target_edit, self.mode, self.objective, self.box_count, self.main_box, self.max_waves, self.clone_yield):
             control.setEnabled(not busy and not pending and self._can_plan())
         edit_stock = self._can_edit_stock()
         for control in (self.add_button, self.bulk_button, self.edit_button, self.capture_button):

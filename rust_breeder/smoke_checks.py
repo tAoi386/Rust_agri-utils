@@ -113,6 +113,49 @@ def check_package(window, app, base: Path):
                       parallel_first_batch_outputs=[s.expected_genes for s in first_steps],
                       parallel_final_output=next_report.waves[-1].steps[-1].expected_genes,
                       languages=['zh_CN', 'en', 'ru'], window_title=window.windowTitle())
+        # Exercise the new visible workflow through its actual worker and
+        # isolated discovery process, without editing personal stock.
+        from PySide6.QtCore import QEventLoop, QTimer
+        for discovery_mode in ('sequential', 'parallel'):
+            blank = {'version': 1, 'inventory': [asdict(row) for row in rows],
+                     'target': 'GGGGGG', 'target_mode': 'counts', 'crop': 'hemp',
+                     'slots': [None] * 9, 'workspace': discovery_mode}
+            window.apply_project(blank)
+            selected_page = window.guided if discovery_mode == 'sequential' else window.parallel
+            controller = window.target_discovery
+            dialog = window.open_target_selector(selected_page)
+            assert dialog is not None, 'Target selector did not open.'
+            loop, watch, deadline = QEventLoop(), QTimer(), QTimer()
+            watch.setInterval(10)
+            watch.timeout.connect(lambda: loop.quit() if controller.worker is None else None)
+            deadline.setSingleShot(True)
+            deadline.timeout.connect(loop.quit)
+            watch.start()
+            deadline.start(18000)
+            if controller.worker is not None:
+                loop.exec()
+            watch.stop()
+            deadline.stop()
+            assert controller.worker is None, 'Target discovery did not finish.'
+            assert controller.report is not None and len(dialog.cards) == 7, 'Target cards missing.'
+            assert tuple(window.inventory) == rows, 'Filtering changed inventory.'
+            option = next(item for item in controller.report.options if item.target.genes.count('Y') == 3)
+            assert option.selectable and option.rounds == 1, 'One-round target was not offered.'
+            if discovery_mode == 'sequential':
+                for code in ('zh_CN', 'en', 'ru'):
+                    set_language(code)
+                    localize_tree(dialog)
+                    app.processEvents()
+                    dialog.grab().save(str(output / f'packaged-targets-{code}.png'))
+                set_language('zh_CN')
+            assert controller.apply_option(option), 'Selecting a target did not apply its cached route.'
+            assert window.target() == option.target, 'The selected count target was not applied.'
+            assert selected_page.state.pending is not None, 'Selection did not arrange the first round.'
+            assert tuple(window.inventory) == rows, 'Selecting a target spent inventory.'
+            assert selected_page.target_edit.isHidden() and selected_page.mode.isHidden(), 'Manual target fields remain visible.'
+            result[f'target_discovery_{discovery_mode}'] = True
+            selected_page.reset_pending()
+        result['target_discovery_options'] = 7
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QColor, QFont, QImage, QPainter
         from .capture_dialog import ScreenCaptureDialog, CapturePreviewDialog, image_png

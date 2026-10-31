@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .assessment import assess_observed
+from .engine import predict
 from .journey import JourneyState, prepare_round, pending_recipe, complete_round, undo_last_round
 from .models import normalize_genes
 from .planner_process import plan_route_process as plan_route
@@ -85,18 +86,24 @@ class GuidedWorkspace(QWidget):
 
         setup = QHBoxLayout()
         setup.setSpacing(8)
-        setup.addWidget(label("目标基因", "stepTitle"))
         self.target_edit = QLineEdit("YYYGGG")
         self.target_edit.setMaximumWidth(105)
         self.target_edit.setObjectName("geneInput")
         self.target_edit.setPlaceholderText("例如 YYYGGG")
         self.target_edit.textChanged.connect(self.change_target)
-        setup.addWidget(self.target_edit)
+        self.target_edit.setParent(self)
+        self.target_edit.hide()
         self.mode = QComboBox()
         self.mode.addItem("按数量 · 顺序不限", "counts")
         self.mode.addItem("逐位 · 固定顺序", "exact")
         self.mode.currentIndexChanged.connect(self.change_target)
-        setup.addWidget(self.mode)
+        self.mode.setParent(self)
+        self.mode.hide()
+        self.select_target_button = button("一键筛选", lambda: self.owner.open_target_selector(self), "primary")
+        self.select_target_button.setObjectName("targetSelectorButton")
+        setup.addWidget(self.select_target_button)
+        self.selected_target_label = label("", "stepTitle", True)
+        setup.addWidget(self.selected_target_label)
         self.objective = QComboBox()
         self.objective.addItem("优先总用苗最少", "plants")
         self.objective.addItem("优先杂交轮数最少", "rounds")
@@ -345,7 +352,13 @@ class GuidedWorkspace(QWidget):
         return self.worker is not None
 
     def current_recipe(self):
-        return pending_recipe(self.state, tuple(self.owner.inventory))
+        recipe = pending_recipe(self.state, tuple(self.owner.inventory))
+        if (recipe is None and self.report is not None and self.report.found
+                and self.report.reason == 'already_target' and self.report.best is not None):
+            existing = self.owner.by_id(self.report.best.center_id)
+            if existing is not None and self.state.target.matches(existing.genes):
+                return replace(self.report.best, center=existing, prediction=predict(existing.genes, ()))
+        return recipe
 
     def context(self):
         return (tuple(self.owner.inventory), self.owner.target(), self.owner.project_crop,
@@ -422,6 +435,7 @@ class GuidedWorkspace(QWidget):
             self.state = replace(self.state, target=target, pending=None)
             self.report = None
             self.stage = 0
+        self.selected_target_label.setText(f"当前选择：{self.owner.target().label}" if target is not None else "请选择优选组合")
         self.target_edit.setText(self.owner.target_edit.text())
         self.mode.setCurrentIndex(self.mode.findData(self.owner.mode_combo.currentData()))
         self.crop.setCurrentIndex(self.crop.findData(self.owner.project_crop))
@@ -540,7 +554,7 @@ class GuidedWorkspace(QWidget):
         self.state = replace(self.state, pending=None)
         if recipe is not None:
             self.state = replace(self.state, target=recipe.target, center_id=recipe.center_id, pending=None)
-            if recipe.donors or recipe.guaranteed:
+            if recipe.donors:
                 try:
                     self.state = prepare_round(self.state, tuple(self.owner.inventory), recipe)
                 except ValueError as exc:
@@ -679,7 +693,7 @@ class GuidedWorkspace(QWidget):
         else:
             self.route_label.setText("已达标，无需继续杂交。" if goal or completed_goal else "先自动选苗，查看路线。")
         editable = not busy and not in_progress and self.owner.can_plan(self)
-        for widget in (self.target_edit, self.mode, self.objective, self.max_rounds, self.clone_yield, self.center_combo,
+        for widget in (self.select_target_button, self.target_edit, self.mode, self.objective, self.max_rounds, self.clone_yield, self.center_combo,
                        self.pin_button):
             widget.setEnabled(editable)
         stock_editable = editable and self.owner.can_edit_stock(exclude=self)

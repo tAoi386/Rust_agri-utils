@@ -32,6 +32,8 @@ PARALLEL_OPTION_NAMES = frozenset({
     'max_combinations', 'max_seconds', 'catalog_limit', 'donor_pool_limit', 'objective',
 })
 
+DISCOVERY_OPTION_NAMES = OPTION_NAMES | PARALLEL_OPTION_NAMES | {'mode'}
+
 
 def _report_from_dict(data):
     def recipe(value):
@@ -78,12 +80,24 @@ def plan_parallel_process(inventory, target, *, cancel=None, progress=None, **op
     return _plan_process(inventory, target, cancel=cancel, progress=progress, job='parallel', **options)
 
 
+def plan_targets_process(inventory, *, mode='sequential', cancel=None, progress=None, **options):
+    """Discover seven Y/G targets in one cancellable isolated worker."""
+    options.setdefault('max_seconds', 12)
+    options.setdefault('max_combinations', 120000)
+    return _plan_process(inventory, Target(), cancel=cancel, progress=progress,
+                         job='targets', mode=mode, **options)
+
+
 def _plan_process(inventory, target, *, cancel=None, progress=None, job='route', **options):
-    allowed = PARALLEL_OPTION_NAMES if job == 'parallel' else OPTION_NAMES
+    allowed = (DISCOVERY_OPTION_NAMES if job == 'targets' else
+               PARALLEL_OPTION_NAMES if job == 'parallel' else OPTION_NAMES)
     if set(options) - allowed:
         raise ValueError('未知的路线计算参数。')
 
     def cancelled(evaluated=0, elapsed=0.0):
+        if job == 'targets':
+            from .target_discovery import cancelled_discovery
+            return cancelled_discovery(options.get('mode', 'sequential'), elapsed)
         if job == 'parallel':
             from .parallel_models import ParallelReport
             return ParallelReport((), False, False, evaluated, 'cancelled',
@@ -96,7 +110,7 @@ def _plan_process(inventory, target, *, cancel=None, progress=None, job='route',
         return cancelled()
     request = json.dumps({
         'inventory': [asdict(row) for row in inventory], 'target': asdict(target),
-        'options': options, **({'job': 'parallel'} if job == 'parallel' else {}),
+        'options': options, **({'job': job} if job != 'route' else {}),
     }, ensure_ascii=True, separators=(',', ':')).encode('ascii')
     if len(request) > REQUEST_LIMIT:
         raise ValueError('种子库过大，无法开始计算。')
@@ -163,7 +177,10 @@ def _plan_process(inventory, target, *, cancel=None, progress=None, job='route',
                 if progress:
                     progress(evaluated, int(message['round']))
             elif kind == 'result':
-                if job == 'parallel':
+                if job == 'targets':
+                    from .target_discovery import TargetDiscoveryReport
+                    report = TargetDiscoveryReport.from_dict(message['report'])
+                elif job == 'parallel':
                     from .parallel_models import ParallelReport
                     report = ParallelReport.from_dict(message['report'])
                 else:
@@ -241,10 +258,11 @@ def worker_main():
         if set(data) not in ({'inventory', 'target', 'options'}, {'inventory', 'target', 'options', 'job'}):
             raise ValueError('无效的路线计算请求。')
         job = data.get('job', 'route')
-        if job not in ('route', 'parallel'):
+        if job not in ('route', 'parallel', 'targets'):
             raise ValueError('未知的计算任务。')
         options = data['options']
-        allowed = PARALLEL_OPTION_NAMES if job == 'parallel' else OPTION_NAMES
+        allowed = (DISCOVERY_OPTION_NAMES if job == 'targets' else
+                   PARALLEL_OPTION_NAMES if job == 'parallel' else OPTION_NAMES)
         if not isinstance(options, dict) or set(options) - allowed:
             raise ValueError('未知的路线计算参数。')
         inventory = tuple(InventoryItem(**row) for row in data['inventory'])
@@ -258,7 +276,12 @@ def worker_main():
                 emit('progress', evaluated=evaluated, round=depth)
                 last_progress = now
 
-        if job == 'parallel':
+        if job == 'targets':
+            from .target_discovery import plan_targets
+            report = plan_targets(inventory, **options,
+                                  progress=lambda completed, total: emit('progress', evaluated=completed, round=total))
+            emit('result', report=report.to_dict())
+        elif job == 'parallel':
             from .parallel import plan_parallel
             report = plan_parallel(inventory, target, **options, progress=report_progress)
             emit('result', report=report.to_dict())
