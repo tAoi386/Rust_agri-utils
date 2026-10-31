@@ -2,9 +2,13 @@
 
 # Rust Growing Toolkit
 
-**V3.1.0 · Windows desktop application**
+**V3.1.1 · Windows desktop application**
 
 Plan breeding routes in Rust from the six-letter genes and actual quantities of the clones you already own. The toolkit provides sequential breeding, parallel planters, screen recognition and automatically saved local projects. Author: **i386tAo** · [2027883286@qq.com](mailto:2027883286@qq.com).
+
+## V3.1.1 filtering fix
+
+- Parallel target discovery checks routes with fewer donors first, reducing missed two-batch results when broader searches consume the budget. Total search time and combination limits remain bounded.
 
 ## V3.1.0 preferred gene combinations
 

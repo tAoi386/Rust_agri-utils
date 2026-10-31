@@ -15,7 +15,7 @@ from rust_breeder.parallel import validate_parallel_report
 from rust_breeder.planner_process import plan_targets_process
 from rust_breeder.routes import RouteReport
 from rust_breeder.target_discovery import (TargetDiscoveryReport, TargetOption,
-    green_targets, plan_targets)
+    green_targets, plan_targets, _parallel_target_search)
 
 
 class TargetDiscoveryTests(unittest.TestCase):
@@ -188,8 +188,91 @@ class TargetDiscoveryTests(unittest.TestCase):
         self.assertTrue(all(x.status == 'unknown' for x in report.options))
         self.assertEqual(sum(x.quantity for x in self.rows), 3)
 
+    def parallel_candidate_fixture(self):
+        rows = (InventoryItem('center', 'HYYYYY'), InventoryItem('a', 'YHYYYY'),
+                InventoryItem('b', 'YYYYYH'), InventoryItem('c', 'GGGHYH'),
+                InventoryItem('d', 'GGGYHY'))
+        target = Target()
+        first = Recipe(rows[0], rows[1:3], predict(rows[0].genes, [x.genes for x in rows[1:3]]), target)
+        output = InventoryItem('intermediate', 'YYYYYY')
+        second = Recipe(output, rows[3:], predict(output.genes, [x.genes for x in rows[3:]]), target)
+        narrow = ParallelReport((
+            ParallelWave(1, (ParallelStep(1, first, 'YYYYYY', 'intermediate'),)),
+            ParallelWave(2, (ParallelStep(1, second, 'GGGYYY', 'result'),)),
+        ), True, False, 30, 'found', minimum_proven=True)
+        direct = Recipe(rows[0], rows[3:], predict(rows[0].genes, [x.genes for x in rows[3:]]), target)
+        broad = ParallelReport((ParallelWave(1, (ParallelStep(1, direct, 'GGGYYY', 'direct'),)),),
+                               True, False, 40, 'found')
+        return rows, target, narrow, broad
+
+    def test_small_donor_prepass_keeps_its_route_when_broad_search_fails_and_shares_budget(self):
+        rows, target, narrow, _ = self.parallel_candidate_fixture()
+        settings = dict(box_count=3, main_box=1, max_waves=3, clone_yield=1,
+                        max_seconds=4, max_combinations=100, objective='stock')
+        clock = [100.0]
+        calls = []
+        def search(inventory, goal, **options):
+            calls.append(options)
+            if len(calls) == 1:
+                clock[0] += .75
+                return narrow
+            clock[0] += options['max_seconds']
+            return ParallelReport((), False, False, options['max_combinations'], 'limit')
+        with patch('rust_breeder.target_discovery.monotonic', side_effect=lambda: clock[0]), \
+                patch('rust_breeder.parallel.plan_parallel', side_effect=search):
+            report = _parallel_target_search(rows, target, settings, None)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual((calls[0]['max_donors'], calls[0]['max_waves']), (2, 2))
+        self.assertEqual((calls[0]['max_combinations'], calls[0]['max_seconds']), (50, 2))
+        self.assertEqual((calls[1]['max_combinations'], calls[1]['max_seconds']), (70, 3.25))
+        self.assertEqual(report.evaluated, 100)
+        self.assertEqual(report.elapsed_seconds, 4)
+        self.assertTrue(report.found)
+        self.assertEqual(report.waves, narrow.waves)
+        self.assertFalse(report.minimum_proven)
+        self.assertFalse(report.complete)
+        self.assertIn('small_donor_prepass', report.limits)
+        validate_parallel_report(report, rows, target)
+
+    def test_better_broad_candidate_still_wins_after_small_donor_prepass(self):
+        rows, target, narrow, broad = self.parallel_candidate_fixture()
+        for objective in ('rounds', 'plants', 'stock'):
+            with self.subTest(objective=objective), patch('rust_breeder.parallel.plan_parallel', side_effect=(narrow, broad)):
+                report = _parallel_target_search(rows, target,
+                    dict(max_seconds=4, max_combinations=100, max_waves=3, objective=objective), None)
+            self.assertTrue(report.found)
+            self.assertEqual(report.waves, broad.waves)
+            self.assertEqual(report.evaluated, narrow.evaluated + broad.evaluated)
+            self.assertFalse(report.minimum_proven)
+            validate_parallel_report(report, rows, target)
+
+    def test_explicit_two_donor_limit_does_not_add_or_shorten_search_passes(self):
+        rows, target, narrow, _ = self.parallel_candidate_fixture()
+        settings = dict(max_donors=2, max_waves=3, max_seconds=4, max_combinations=100)
+        with patch('rust_breeder.parallel.plan_parallel', return_value=narrow) as search:
+            report = _parallel_target_search(rows, target, settings, None)
+        self.assertIs(report, narrow)
+        search.assert_called_once_with(rows, target, cancel=None, **settings)
+
 
 class TargetDiscoveryProcessTests(unittest.TestCase):
+    def test_exact_ui_parallel_defaults_find_known_two_batch_target(self):
+        rows = tuple(InventoryItem(str(index), genes) for index, genes in enumerate((
+            'HGYGHG', 'HGGGYY', 'HYYGYG', 'YHYYHH', 'GYHYYY', 'YYHYYY', 'YHYYHG')))
+        started = monotonic()
+        # Deliberately omit max_donors: this is the visible UI's original
+        # eight-donor search space, where the two-batch route was missed.
+        report = plan_targets_process(rows, mode='parallel', box_count=3, main_box=1,
+            max_waves=3, clone_yield=1, objective='stock', max_seconds=12, max_combinations=120000)
+        chosen = next(x for x in report.options if x.target.genes.count('Y') == 3)
+        self.assertEqual(chosen.status, 'reachable')
+        self.assertEqual(chosen.rounds, 2)
+        self.assertLessEqual(report.evaluated, 120000)
+        self.assertLess(monotonic() - started, 15)
+        self.assertFalse(chosen.report.minimum_proven)
+        validate_parallel_report(chosen.report, rows, chosen.target)
+        self.assertEqual(sum(row.quantity for row in rows), 7)
+
     def test_real_child_returns_selectable_full_routes_for_both_modes_and_exits(self):
         rows = (InventoryItem('a', 'GYYGGG'), InventoryItem('b', 'YHYGGG'), InventoryItem('c', 'YGGGGG'))
         for mode in ('sequential', 'parallel'):

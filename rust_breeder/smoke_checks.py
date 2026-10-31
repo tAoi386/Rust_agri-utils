@@ -156,6 +156,16 @@ def check_package(window, app, base: Path):
             result[f'target_discovery_{discovery_mode}'] = True
             selected_page.reset_pending()
         result['target_discovery_options'] = 7
+        # Exact UI defaults: do not override the default donor limit here.
+        from .planner_process import plan_targets_process
+        multi_discovery = plan_targets_process(split, mode='parallel', box_count=3,
+                                                main_box=1, max_waves=3, clone_yield=1,
+                                                objective='stock', max_seconds=12,
+                                                max_combinations=120000)
+        multi_option = next(x for x in multi_discovery.options if x.target.genes.count('Y') == 3)
+        assert multi_option.selectable and multi_option.rounds == 2, 'UI-default discovery missed the known two-batch route.'
+        validate_parallel_report(multi_option.report, split, multi_option.target)
+        result['target_discovery_default_two_batches'] = True
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QColor, QFont, QImage, QPainter
         from .capture_dialog import ScreenCaptureDialog, CapturePreviewDialog, image_png

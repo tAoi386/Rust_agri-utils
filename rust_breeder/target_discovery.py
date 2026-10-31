@@ -199,6 +199,53 @@ def _candidate_rank(report, rows, objective):
     return report.rounds, report.plant_count
 
 
+def _parallel_target_search(rows, target, settings, cancel):
+    """Try common short pair-donor routes before the wider catalog search.
+
+    Both passes own slices of this target's existing budget. A broad catalog
+    can spend its quota before retaining the complementary small branches;
+    keeping an independently verified narrow candidate prevents that search
+    order from hiding a known executable route.
+    """
+    from .parallel import plan_parallel, validate_parallel_report
+
+    maximum = settings.get('max_donors', 8)
+    waves = settings.get('max_waves', 3)
+    budget = settings['max_combinations']
+    if maximum <= 2 or waves < 2 or budget < 2:
+        return plan_parallel(rows, target, cancel=cancel, **settings)
+
+    started = monotonic()
+    narrow_settings = dict(settings, max_donors=2, max_waves=2,
+                           max_combinations=max(1, budget // 2),
+                           max_seconds=settings['max_seconds'] / 2)
+    narrow = plan_parallel(rows, target, cancel=cancel, **narrow_settings)
+    reports = [narrow]
+    if narrow.found:
+        validate_parallel_report(narrow, rows, target)
+
+    remaining_seconds = settings['max_seconds'] - (monotonic() - started)
+    remaining_combinations = budget - narrow.evaluated
+    if (not narrow.cancelled and not (cancel and cancel())
+            and remaining_seconds > 0 and remaining_combinations > 0):
+        broad_settings = dict(settings, max_seconds=remaining_seconds,
+                              max_combinations=remaining_combinations)
+        broad = plan_parallel(rows, target, cancel=cancel, **broad_settings)
+        if broad.found:
+            validate_parallel_report(broad, rows, target)
+        reports.append(broad)
+
+    candidates = [report for report in reports if report.found and not report.cancelled]
+    chosen = (min(candidates, key=lambda report: _candidate_rank(
+                  report, rows, settings.get('objective', 'stock')))
+              if candidates else reports[-1])
+    return replace(chosen, evaluated=sum(report.evaluated for report in reports),
+                   elapsed_seconds=monotonic() - started, requested_max_waves=waves,
+                   limits=tuple(sorted({'small_donor_prepass', *(
+                       limit for report in reports for limit in report.limits)})),
+                   complete=False, minimum_proven=False)
+
+
 def _reuse_candidates(options, report, rows, mode, settings):
     """Rebind and replay useful all-green route prefixes for other cards.
 
@@ -310,8 +357,8 @@ def plan_targets(inventory, *, mode='sequential', cancel=None, progress=None, **
                               max_combinations=max(1, remaining_combinations // share))
         target = options[index].target
         if mode == 'parallel':
-            from .parallel import plan_parallel, validate_parallel_report
-            report = plan_parallel(rows, target, cancel=cancel, **search_options)
+            from .parallel import validate_parallel_report
+            report = _parallel_target_search(rows, target, search_options, cancel)
             if report.found:
                 validate_parallel_report(report, rows, target)
         else:
