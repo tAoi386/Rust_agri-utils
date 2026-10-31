@@ -692,6 +692,54 @@ _TEMPLATE_ENTRIES += [
     ("项目培育记录无效：{detail}", "Invalid project breeding history: {detail}", "Недопустимая история селекции проекта: {detail}"),
 ]
 
+_ENTRIES += [
+    ("识别画面预览", "Capture preview", "Предпросмотр снимка"),
+    ("查看大图", "Enlarge", "Увеличить"),
+    ("识别画面 · 放大核对", "Capture · enlarged inspection", "Снимок · проверка с увеличением"),
+    ("双击预览查看大图，可放大核对六位基因。", "Double-click to enlarge and check all six genes.", "Дважды щёлкните, чтобы увеличить и проверить все шесть генов."),
+    ("放大核对完整六位基因；识别结果仍需在列表确认。", "Enlarge to check all six genes; confirm recognized results in the list.", "Увеличьте снимок для проверки всех шести генов; подтвердите результат в списке."),
+    ("适应窗口", "Fit to window", "По размеру окна"),
+    ("原图大小", "Original size", "Исходный размер"),
+    ("2 倍", "2×", "2×"),
+    ("4 倍", "4×", "4×"),
+]
+
+
+# Preferred Y/G target selection.
+_ENTRIES += [
+    ('当前基因库 · 优选组合', 'Seed library · preferred combinations', 'Библиотека · лучшие сочетания'),
+    ('当前可以培育哪些优选组合', 'Choose a combination to grow', 'Выберите сочетание для выращивания'),
+    ('只筛选六位均为 Y、G 的组合，顺序不限。选择可达成的卡片即可自动安排种植。', 'Find six-gene Y/G combinations in any order. Select a reachable card to arrange the plants automatically.', 'Поиск сочетаний из шести генов Y/G в любом порядке. Выберите достижимое сочетание для автоматической расстановки растений.'),
+    ('正在准备筛选…', 'Preparing the search…', 'Подготовка поиска…'),
+    ('正在结合已有基因和可用数量筛选…', 'Checking the available genes and clone quantities…', 'Проверка имеющихся генов и количества клонов…'),
+    ('轮数和用苗按当前规划设置预估；每轮仍需在游戏中核对实际结果。', 'Rounds and plant use follow the current planning settings. Confirm the actual result in the game after each round.', 'Число раундов и расход растений рассчитаны по текущим настройкам. После каждого раунда проверяйте фактический результат в игре.'),
+    ('停止筛选', 'Stop search', 'Остановить поиск'),
+    ('正在停止筛选…', 'Stopping the search…', 'Остановка поиска…'),
+    ('库内已有 · 无需杂交', 'Already in stock · no breeding needed', 'Уже есть в запасе · скрещивание не требуется'),
+    ('可直接使用已有优选株，不消耗培育用苗。', 'Use an existing matching clone without spending plants on breeding.', 'Можно использовать подходящий клон из запаса без расхода растений на скрещивание.'),
+    ('选用已有优选株', 'Use existing clone', 'Использовать клон'),
+    ('可达成 · 已找到完整路线', 'Reachable · complete route found', 'Достижимо · найден полный путь'),
+    ('选用并自动选苗', 'Select and arrange', 'Выбрать и расставить'),
+    ('不可达 · 当前基因库条件不足', 'Unreachable with the current genes', 'Недостижимо с имеющимися генами'),
+    ('现有基因不满足该组合的必要条件，请补充样本后再筛选。', 'The available genes lack a necessary condition for this combination. Add more samples and search again.', 'Имеющиеся гены не удовлетворяют необходимому условию этого сочетания. Добавьте образцы и повторите поиск.'),
+    ('暂未找到完整路线', 'No complete route found yet', 'Полный путь пока не найден'),
+    ('本次搜索未确认可达；可补充样本或调整规划设置后重新筛选。', 'This search has not confirmed a route. Add samples or adjust the planning settings and search again.', 'Этот поиск не подтвердил достижимость. Добавьте образцы или измените настройки и повторите поиск.'),
+    ('基因库为空。请先添加或读取已有克隆，再进行一键筛选。', 'The library is empty. Add or scan your clones before searching.', 'Библиотека пуста. Добавьте или считайте клоны перед поиском.'),
+    ('一键筛选', 'Find combinations', 'Найти сочетания'),
+    ('请选择优选组合', 'Choose a combination', 'Выберите сочетание'),
+    ('请先完成或撤销当前安排，再筛选优选组合。', 'Complete or cancel the current arrangement before finding combinations.', 'Завершите или отмените текущую расстановку перед поиском сочетаний.'),
+    ('基因库或规划设置已变化，请重新筛选。', 'The library or planning settings changed. Search again.', 'Библиотека или настройки изменились. Повторите поиск.'),
+    ('路线与当前基因库不一致，请重新筛选。', 'The route does not match the current library. Search again.', 'Путь не соответствует текущей библиотеке. Повторите поиск.'),
+    ('筛选未完成，请重新尝试。', 'The search did not finish. Try again.', 'Поиск не завершён. Повторите попытку.'),
+]
+_TEMPLATE_ENTRIES += [
+    ('预计 {rounds} 批 · 累计用苗 {plants} 株', 'Estimated {rounds} batches · {plants} plants used', 'Примерно {rounds} партий · расход {plants} растений'),
+    ('预计 {rounds} 轮 · 累计用苗 {plants} 株', 'Estimated {rounds} rounds · {plants} plants used', 'Примерно {rounds} раундов · расход {plants} растений'),
+    ('已筛选 {completed}/{total} 种组合，正在继续比较…', 'Checked {completed}/{total} combinations; comparing more…', 'Проверено {completed}/{total} сочетаний; сравнение продолжается…'),
+    ('筛选完成 · {choices} 种可选组合，共 {total} 种组合', 'Search complete · {choices} selectable out of {total} combinations', 'Поиск завершён · доступно {choices} из {total} сочетаний'),
+    ('当前选择：{detail}', 'Selected: {detail}', 'Выбрано: {detail}'),
+]
+
 TRANSLATIONS = {
     "en": {source: english for source, english, russian in _ENTRIES},
     "ru": {source: russian for source, english, russian in _ENTRIES},

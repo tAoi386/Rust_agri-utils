@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from itertools import product
 import os
 from pathlib import Path
 import subprocess
@@ -17,6 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PNG = b"\x89PNG\r\n\x1a\nmock-image-data"
 RUST_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-detail-genes.png"
 RUST_WHEAT_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-wheat-detail-genes.png"
+RUST_HEMP_DETAIL_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-hemp-detail-genes.png"
+RUST_HEMP_GGYXHH_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "rust-hemp-ggyxhh-detail-genes.png"
 
 
 class GeneOcrParserTests(unittest.TestCase):
@@ -167,6 +170,13 @@ class GeneImagePreparationTests(unittest.TestCase):
         self.assertIsNotNone(prepared)
         self.assertEqual(prepared.colors, ((1, 2, 1, 2, 1, 1),))
 
+    def test_real_hemp_detail_keeps_all_six_colored_positions(self):
+        # Anonymous six-gene strip only. Windows ignored the prepared large
+        # XYHYXH row even though all six letter positions were located.
+        prepared = screen_ocr._prepare_badge_image(RUST_HEMP_DETAIL_FIXTURE.read_bytes())
+        self.assertIsNotNone(prepared)
+        self.assertEqual(prepared.colors, ((2, 1, 1, 1, 2, 1),))
+
     def test_small_white_badges_keep_one_interpretation_across_all_six_positions(self):
         for genes in ("WHYXGW", "HHHHHH", "GGGGGG"):
             with self.subTest(genes=genes):
@@ -203,6 +213,56 @@ class GeneImagePreparationTests(unittest.TestCase):
             with self.subTest(scale=scale):
                 self.assertIsNotNone(prepared)
                 self.assertEqual(prepared.colors, ((2, 1, 1, 2, 1, 2),))
+
+    def test_unreadable_text_retry_preserves_colors_and_scaled_row_positions(self):
+        from PySide6.QtGui import QImage
+        prepared = screen_ocr._prepare_badge_image(self.image("GYYGHXWWYGGY"))
+        retry = screen_ocr._rescale_prepared_for_retry(prepared)
+        self.assertIsNotNone(retry)
+        source = QImage.fromData(prepared.image, "PNG")
+        target = QImage.fromData(retry.image, "PNG")
+        self.assertEqual(retry.colors, prepared.colors)
+        self.assertEqual(retry.row_height, prepared.row_height * target.height() / source.height())
+        self.assertGreater(target.height(), source.height())
+
+    def test_unreadable_text_retry_keeps_tall_batches_within_engine_limit(self):
+        from PySide6.QtGui import QImage
+        prepared = screen_ocr._PreparedGenes(self.image(height=2400), ((1, 1, 1, 1, 1, 2),), 128.0)
+        retry = screen_ocr._rescale_prepared_for_retry(prepared)
+        target = QImage.fromData(retry.image, "PNG")
+        self.assertLessEqual(max(target.width(), target.height()), 2400)
+        self.assertEqual(retry.colors, prepared.colors)
+        self.assertAlmostEqual(retry.row_height, 102.4)
+
+    @staticmethod
+    def mixed_rows_with_rings():
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtGui import QColor, QImage, QPainter
+        image = QImage(190, 140, QImage.Format.Format_RGB32)
+        image.fill(QColor(75, 75, 75))
+        painter = QPainter(image)
+        painter.drawImage(20, 5, QImage(str(RUST_DETAIL_FIXTURE)))
+        painter.drawImage(20, 95, QImage(str(RUST_HEMP_DETAIL_FIXTURE)))
+        painter.end()
+        # Six two-pixel rings are regular colored components, but are not
+        # letters. They must not make Windows discard the clear bottom row.
+        ring = (
+            ".....#####.....", "...#########...", "..###.....###..",
+            ".###.......###.", ".##.........##.", "##...........##",
+            "##...........##", "##...........##", "##...........##",
+            "##...........##", ".##.........##.", ".###.......###.",
+            "..###.....###..", "...#########...", ".....#####.....",
+        )
+        for index in range(6):
+            color = QColor(128, 175, 45) if index % 3 else QColor(225, 65, 35)
+            for y, row in enumerate(ring):
+                for x, pixel in enumerate(row):
+                    if pixel == "#":
+                        image.setPixelColor(27 + 23 * index + x, 57 + y, color)
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        return bytes(buffer.data())
 
     @classmethod
     def four_k_image(cls, *, colored=True, plain=True):
@@ -263,6 +323,77 @@ class GeneImagePreparationTests(unittest.TestCase):
         executable.assert_not_called()
 
 
+class GeneGlyphRecognitionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        GeneImagePreparationTests.setUpClass()
+        prepared = screen_ocr._prepare_badge_image(RUST_DETAIL_FIXTURE.read_bytes())
+        cls.signatures = dict(zip("WHYXGW", prepared.glyphs[0]))
+
+    def test_clear_real_holdouts_never_start_windows_ocr(self):
+        for path, expected in (
+            (RUST_DETAIL_FIXTURE, "WHYXGW"), (RUST_WHEAT_DETAIL_FIXTURE, "GXGXGH"),
+            (RUST_HEMP_DETAIL_FIXTURE, "XYHYXH"), (RUST_HEMP_GGYXHH_FIXTURE, "GGYXHH"),
+        ):
+            for colored_only in (True, False):
+                with self.subTest(path=path.name, colored_only=colored_only), patch.object(screen_ocr, "_powershell_path", side_effect=AssertionError("A clear gene row must not launch Windows OCR.")):
+                    self.assertEqual(screen_ocr.recognize_gene_image(path.read_bytes(), colored_only=colored_only), (expected,))
+
+    def test_all_15625_gene_combinations_use_independent_position_shapes(self):
+        count = 0
+        for letters in product("GYHWX", repeat=6):
+            expected = "".join(letters)
+            colors = (tuple(1 if gene in "GYH" else 2 for gene in letters),)
+            glyphs = (tuple(self.signatures[gene] for gene in letters),)
+            prepared = screen_ocr._PreparedGenes(b"", colors, glyphs=glyphs)
+            self.assertEqual(screen_ocr._recognized_glyph_genes(prepared), (expected,))
+            count += 1
+        self.assertEqual(count, 15625)
+
+    def test_unknown_ambiguous_and_wrong_color_shapes_are_rejected(self):
+        from rust_breeder.gene_glyphs import SIGNATURE_PIXELS, match_gene_glyph
+        for signature in (b"", b"bad", bytes(SIGNATURE_PIXELS), bytes([255]) * SIGNATURE_PIXELS):
+            for color in (1, 2):
+                self.assertIsNone(match_gene_glyph(signature, color))
+        ambiguous = bytes((a + b) // 2 for a, b in zip(self.signatures["W"], self.signatures["X"]))
+        self.assertIsNone(match_gene_glyph(ambiguous, 2))
+        for gene, signature in self.signatures.items():
+            self.assertIsNone(match_gene_glyph(signature, 2 if gene in "GYH" else 1))
+
+    def test_incomplete_or_untrusted_position_never_becomes_a_six_gene_row(self):
+        colors = ((1, 1, 1, 1, 1, 1),)
+        good = tuple(self.signatures[gene] for gene in "GGYYHH")
+        for row in (good[:5], good + good[:1], good[:3] + (b"",) + good[4:]):
+            self.assertIsNone(screen_ocr._recognized_glyph_genes(screen_ocr._PreparedGenes(b"", colors, glyphs=(row,))))
+
+    def test_known_rows_survive_unknown_rings_when_windows_omits_a_clear_row(self):
+        image = GeneImagePreparationTests.mixed_rows_with_rings()
+        prepared = screen_ocr._prepare_badge_image(image)
+        self.assertEqual(len(prepared.colors), 3)
+        self.assertEqual(screen_ocr._recognized_glyph_gene_rows(prepared), {0: "WHYXGW", 2: "XYHYXH"})
+        first = screen_ocr._PositionedText("WHYXGW", ((64.0, "WHYXGW"),))
+        with patch.object(screen_ocr, "_powershell_path", return_value=Path("powershell.exe")), patch.object(screen_ocr, "_recognize_image_text", side_effect=[first, ""]) as engine:
+            self.assertEqual(screen_ocr.recognize_gene_image(image, colored_only=True), ("WHYXGW", "XYHYXH"))
+        # A successful shape row cannot suppress the one existing retry for
+        # another row; unknown rings still never become a gene sequence.
+        self.assertEqual(engine.call_count, 2)
+
+    def test_row_merge_preserves_order_duplicates_and_known_shapes(self):
+        good = tuple(self.signatures[gene] for gene in "GGYYHH")
+        prepared = screen_ocr._PreparedGenes(b"prepared", ((1,) * 6,) * 3, glyphs=(good, (b"",) * 6, good))
+        fallback = screen_ocr._PositionedText("HHHHHH\nGGGGGG", ((64.0, "HHHHHH"), (192.0, "GGGGGG")))
+        with patch.object(screen_ocr, "_prepare_badge_image", return_value=prepared), patch.object(screen_ocr, "_powershell_path", return_value=Path("powershell.exe")), patch.object(screen_ocr, "_recognize_image_text", return_value=fallback):
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG, colored_only=True), ("GGYYHH", "GGGGGG", "GGYYHH"))
+
+    def test_fragmented_h_arc_reconnects_after_mild_brightness_reduction(self):
+        pieces = [(30, 11, 3, 8, 18, 1), (33, 8, 11, 14, 57, 1)]
+        self.assertEqual(screen_ocr._merge_badge_fragments(pieces), [(30, 8, 14, 14, 75, 1)])
+
+    def test_tiny_h_arc_reconnects_after_seventy_five_percent_sampling(self):
+        pieces = [(74, 9, 2, 5, 6, 1), (77, 6, 8, 11, 44, 1)]
+        self.assertEqual(screen_ocr._merge_badge_fragments(pieces), [(74, 6, 11, 11, 50, 1)])
+
+
 class WindowsOcrProcessTests(unittest.TestCase):
     def setUp(self):
         real_temporary_directory = tempfile.TemporaryDirectory
@@ -307,27 +438,80 @@ class WindowsOcrProcessTests(unittest.TestCase):
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ())
         self.fallback.assert_called_once_with(PNG, deadline=ANY)
 
-    def test_badge_cleanup_is_recognized_in_a_second_local_pass(self):
+    def test_located_badge_cleanup_goes_directly_to_the_local_engine(self):
         cleaned = PNG + b"cleaned"
         self.fallback.return_value = screen_ocr._PreparedGenes(cleaned, ((1, 1, 1, 1, 1, 2), (2, 2, 1, 1, 1, 1)))
-        self.process.side_effect = [self.result({"text": ""}), self.result({"text": "G Y Y G H X\nW W Y G G Y"})]
+        self.process.side_effect = [self.result({"text": "G Y Y G H X\nW W Y G G Y"})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
-        self.assertEqual(self.process.call_count, 2)
+        self.assertEqual(self.process.call_count, 1)
 
-    def test_color_pass_checks_even_an_apparently_valid_first_ocr_result(self):
+    def test_located_color_pass_does_not_start_a_redundant_original_image_pass(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
-        self.process.side_effect = [self.result({"text": "GYYGXX"}), self.result({"text": "GYYGHX"})]
+        self.process.side_effect = [self.result({"text": "GYYGHX"})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX",))
-        self.assertEqual(self.process.call_count, 2)
+        self.assertEqual(self.process.call_count, 1)
 
     def test_conflicting_color_rejects_a_legal_but_wrong_letter_without_guessing(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
-        self.process.side_effect = [self.result({"text": "GYYGXX"}), self.result({"text": "GYYGXX"})]
+        self.process.side_effect = [self.result({"text": "GYYGXX"})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ())
+
+    def test_incomplete_small_glyphs_retry_once_using_same_row_and_color_checks(self):
+        colors = ((1, 1, 1, 1, 1, 1), (2, 2, 1, 1, 1, 1))
+        self.fallback.return_value = screen_ocr._PreparedGenes(PNG, colors)
+        retry = screen_ocr._PreparedGenes(PNG + b"resampled", colors, 160.0)
+        self.process.side_effect = [
+            self.result({"text": "e 00"}),
+            self.result({"text": "WWYGGY", "words": [{"text": "WWYGGY", "x": 20, "y": 200, "width": 500, "height": 48}]}),
+        ]
+        with patch.object(screen_ocr, "_rescale_prepared_for_retry", return_value=retry) as resample:
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("WWYGGY",))
+        self.assertEqual(self.process.call_count, 2)
+        self.assertEqual(resample.call_count, 1)
+        self.assertGreater(self.process.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(self.process.call_args.kwargs["timeout"], 15)
+
+    def test_ignored_large_glyph_row_retries_at_a_smaller_raster(self):
+        colors = ((2, 1, 1, 1, 2, 1),)
+        prepared = screen_ocr._PreparedGenes(PNG, colors)
+        self.fallback.return_value = prepared
+        retry = screen_ocr._PreparedGenes(PNG + b"resampled", colors, 96.0)
+        self.process.side_effect = [
+            self.result({"text": ""}),
+            self.result({"text": "X Y H Y X H", "words": [{"text": "XYHYXH", "x": 15, "y": 30, "width": 250, "height": 36}]}),
+        ]
+        with patch.object(screen_ocr, "_rescale_prepared_for_retry", return_value=retry) as resample:
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("XYHYXH",))
+        resample.assert_called_once_with(prepared, scale=0.75)
+        self.assertEqual(self.process.call_count, 2)
+
+    def test_retry_does_not_replace_complete_but_color_conflicting_genes(self):
+        self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
+        self.process.side_effect = [self.result({"text": "GYYGXX"})]
+        with patch.object(screen_ocr, "_rescale_prepared_for_retry") as resample:
+            self.assertEqual(screen_ocr.recognize_gene_image(PNG), ())
+        resample.assert_not_called()
+        self.assertEqual(self.process.call_count, 1)
+
+    def test_incomplete_small_glyph_retry_uses_original_total_deadline(self):
+        prepared = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
+        self.fallback.return_value = prepared
+        clock = [100.0]
+
+        def engine(*args, **kwargs):
+            if self.process.call_count == 2:
+                clock[0] = 115.1
+            return self.result({"text": "e 00"})
+
+        self.process.side_effect = engine
+        with patch.object(screen_ocr, "_rescale_prepared_for_retry", return_value=prepared), patch.object(screen_ocr.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaisesRegex(screen_ocr.OcrError, "超时"):
+                screen_ocr.recognize_gene_image(PNG)
+        self.assertEqual(self.process.call_count, 2)
 
     def test_missing_first_ocr_row_does_not_shift_second_row_colors(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 1), (2, 2, 1, 1, 1, 1)))
-        self.process.side_effect = [self.result({"text": ""}), self.result({"text": "WWYGGY", "words": [{"text": "WWYGGY", "x": 20, "y": 160, "width": 500, "height": 48}]})]
+        self.process.side_effect = [self.result({"text": "WWYGGY", "words": [{"text": "WWYGGY", "x": 20, "y": 160, "width": 500, "height": 48}]})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("WWYGGY",))
 
     def test_small_badge_word_fragments_rejoin_only_within_their_prepared_row(self):
@@ -336,7 +520,7 @@ class WindowsOcrProcessTests(unittest.TestCase):
         # Large screen gaps remain separate for ordinary OCR; generated image
         # row positions provide the additional evidence needed to rejoin them.
         self.assertEqual(screen_ocr.extract_gene_sequences(screen_ocr._words_in_screen_order(words)), ())
-        self.process.side_effect = [self.result({"text": ""}), self.result({"text": "", "words": words})]
+        self.process.side_effect = [self.result({"text": "", "words": words})]
         self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
 
     def test_manual_color_location_receives_same_total_deadline_as_engine(self):
@@ -344,12 +528,12 @@ class WindowsOcrProcessTests(unittest.TestCase):
             self.assertEqual(screen_ocr.recognize_gene_image(PNG), ("GYYGHX", "WWYGGY"))
         self.fallback.assert_called_once_with(PNG, deadline=115.0)
 
-    def test_total_deadline_is_checked_after_the_second_engine_call(self):
+    def test_total_deadline_is_checked_after_the_engine_call(self):
         self.fallback.return_value = screen_ocr._PreparedGenes(PNG, ((1, 1, 1, 1, 1, 2),))
         clock = [100.0]
 
         def engine(*args, **kwargs):
-            if self.process.call_count == 2:
+            if self.process.call_count == 1:
                 clock[0] = 115.1
             return self.result({"text": "GYYGHX"})
 
@@ -357,16 +541,14 @@ class WindowsOcrProcessTests(unittest.TestCase):
         with patch.object(screen_ocr.time, "monotonic", side_effect=lambda: clock[0]):
             with self.assertRaisesRegex(screen_ocr.OcrError, "超时"):
                 screen_ocr.recognize_gene_image(PNG)
-        self.assertEqual(self.process.call_count, 2)
+        self.assertEqual(self.process.call_count, 1)
 
-    def test_badge_pass_honors_total_fifteen_second_deadline(self):
-        # A full first OCR timeout must not start a fresh, unbounded pixel scan.
-        self.process.return_value = self.result({"text": ""})
+    def test_locator_honors_total_deadline_before_starting_the_engine(self):
         with patch.object(screen_ocr.time, "monotonic", side_effect=[100.0, 115.1]):
             with self.assertRaisesRegex(screen_ocr.OcrError, "超时"):
                 screen_ocr.recognize_gene_image(PNG)
-        self.fallback.assert_not_called()
-        self.assertEqual(self.process.call_count, 1)
+        self.fallback.assert_called_once_with(PNG, deadline=115.0)
+        self.process.assert_not_called()
 
     def test_timeout_removes_image_and_reports_helpful_error(self):
         self.process.side_effect = subprocess.TimeoutExpired("powershell", 15)
@@ -407,9 +589,19 @@ class WindowsOcrProcessTests(unittest.TestCase):
 class WindowsOcrRealBadgeTests(unittest.TestCase):
     def test_real_rust_detail_crop_recognizes_exact_gene_order(self):
         GeneImagePreparationTests.setUpClass()
-        image = RUST_DETAIL_FIXTURE.read_bytes()
-        self.assertEqual(screen_ocr.recognize_gene_image(image, colored_only=True), ("WHYXGW",))
-        self.assertEqual(screen_ocr.recognize_gene_image(image), ("WHYXGW",))
+        from PySide6.QtCore import QBuffer, QIODevice, Qt
+        from PySide6.QtGui import QImage
+        source = QImage(str(RUST_DETAIL_FIXTURE))
+        # Real UI-scale sampling can make Windows miss a clear row even when
+        # all six color positions were found (notably 75% and 125% here).
+        for scale in (0.75, 0.875, 1, 1.25, 1.5, 2):
+            image = source.scaled(round(source.width() * scale), round(source.height() * scale), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            image.save(buffer, "PNG")
+            for colored_only in (True, False):
+                with self.subTest(scale=scale, colored_only=colored_only):
+                    self.assertEqual(screen_ocr.recognize_gene_image(bytes(buffer.data()), colored_only=colored_only), ("WHYXGW",))
 
     def test_real_wheat_detail_recognizes_x_without_letter_substitution(self):
         GeneImagePreparationTests.setUpClass()
@@ -425,10 +617,22 @@ class WindowsOcrRealBadgeTests(unittest.TestCase):
                 with self.subTest(scale=scale, colored_only=colored_only):
                     self.assertEqual(screen_ocr.recognize_gene_image(bytes(buffer.data()), colored_only=colored_only), ("GXGXGH",))
 
+    def test_real_hemp_detail_does_not_silently_ignore_the_second_seed(self):
+        GeneImagePreparationTests.setUpClass()
+        image = RUST_HEMP_DETAIL_FIXTURE.read_bytes()
+        for colored_only in (True, False):
+            with self.subTest(colored_only=colored_only):
+                self.assertEqual(screen_ocr.recognize_gene_image(image, colored_only=colored_only), ("XYHYXH",))
+
     def test_automatic_4k_scan_recognizes_only_colored_genes(self):
         GeneImagePreparationTests.setUpClass()
         screenshot = GeneImagePreparationTests.four_k_image()
         self.assertEqual(screen_ocr.recognize_gene_image(screenshot, colored_only=True), ("GYYGHX",))
+
+    def test_mixed_clear_genes_and_six_rings_keep_both_real_rows(self):
+        GeneImagePreparationTests.setUpClass()
+        image = GeneImagePreparationTests.mixed_rows_with_rings()
+        self.assertEqual(screen_ocr.recognize_gene_image(image, colored_only=True), ("WHYXGW", "XYHYXH"))
 
     def test_windows_recognizes_white_and_dark_glyphs_on_colored_badges(self):
         # This is an actual Windows engine call, not a mocked OCR response.

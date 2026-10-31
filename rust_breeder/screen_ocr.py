@@ -1,4 +1,4 @@
-"""Offline screen-image OCR using the Windows recognition engine.
+"""Offline gene glyph recognition, with Windows OCR as a local fallback.
 
 Call ``recognize_gene_image`` in a worker: starting the Windows OCR process can
 take several seconds on its first use. Qt is loaded lazily for badge cleanup.
@@ -160,6 +160,59 @@ class _PreparedGenes:
     # Each entry describes the six original colors, never a guessed letter.
     colors: tuple[tuple[int, ...], ...]
     row_height: float = 128.0
+    # Normalized signatures from the original per-letter pixels. Empty for
+    # older callers and test payloads; this keeps the OCR fallback compatible.
+    glyphs: tuple[tuple[bytes, ...], ...] = ()
+
+
+def _glyph_signature(image) -> bytes:
+    """Normalize a real isolated ink mask without guessing its letter."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    from .gene_glyphs import SIGNATURE_WIDTH, SIGNATURE_HEIGHT
+
+    if image is None or image.isNull():
+        return b""
+    gray = image.convertToFormat(QImage.Format.Format_Grayscale8)
+    pixels, stride = gray.constBits(), gray.bytesPerLine()
+    ink = [(x, y) for y in range(gray.height()) for x in range(gray.width()) if pixels[y * stride + x] < 190]
+    if len(ink) < 8:
+        return b""
+    left, top = min(x for x, _ in ink), min(y for _, y in ink)
+    right, bottom = max(x for x, _ in ink), max(y for _, y in ink)
+    if not 0.18 <= (right - left + 1) / (bottom - top + 1) <= 1.8:
+        return b""
+    normalized = gray.copy(left, top, right - left + 1, bottom - top + 1).scaled(
+        SIGNATURE_WIDTH, SIGNATURE_HEIGHT, Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    ).convertToFormat(QImage.Format.Format_Grayscale8)
+    pixels, stride = normalized.constBits(), normalized.bytesPerLine()
+    return bytes(pixels[y * stride + x] for y in range(SIGNATURE_HEIGHT) for x in range(SIGNATURE_WIDTH))
+
+
+def _recognized_glyph_gene_rows(prepared: _PreparedGenes) -> dict[int, str]:
+    """Keep confident complete rows separate from unreadable neighboring rows."""
+    from .gene_glyphs import match_gene_glyph
+
+    if not prepared.glyphs or len(prepared.glyphs) != len(prepared.colors):
+        return {}
+    genes: dict[int, str] = {}
+    for index, (glyphs, colors) in enumerate(zip(prepared.glyphs, prepared.colors)):
+        if len(glyphs) != 6 or len(colors) != 6:
+            continue
+        letters = [match_gene_glyph(glyph, color) for glyph, color in zip(glyphs, colors)]
+        if any(letter is None for letter in letters):
+            continue
+        genes[index] = "".join(letters)
+    return genes
+
+
+def _recognized_glyph_genes(prepared: _PreparedGenes) -> tuple[str, ...] | None:
+    """Accept a wholly confident batch; otherwise leave unmatched rows to OCR."""
+    rows = _recognized_glyph_gene_rows(prepared)
+    if not prepared.colors or len(rows) != len(prepared.colors):
+        return None
+    return tuple(rows[index] for index in range(len(prepared.colors)))
 
 
 def _colored_components(colors: bytearray, width: int, height: int, *, deadline: float | None = None) -> list[tuple[int, int, int, int, int, int]]:
@@ -227,14 +280,14 @@ def _merge_badge_fragments(boxes: list[tuple[int, int, int, int, int, int]], *, 
         if fragment is None:
             continue
         x, y, width, height, count, color = fragment
-        if not (6 <= height <= 180 and width / height < 0.35):
+        if not (5 <= height <= 180 and width / height <= 0.4):
             continue
         best: tuple[float, int, tuple] | None = None
         for other_index, box in enumerate(merged):
             if box is None or index == other_index:
                 continue
             bx, by, bw, bh, pixels, other_color = box
-            if color != other_color or not (0.45 <= bw / bh <= 1.5) or pixels < count * 2 or max(height, bh) > min(height, bh) * 2:
+            if color != other_color or not (0.45 <= bw / bh <= 1.5) or pixels < count * 2 or max(height, bh) > min(height, bh) * 2.25:
                 continue
             overlap = min(y + height, by + bh) - max(y, by)
             gap = max(bx - x - width, x - bx - bw, 0)
@@ -518,7 +571,8 @@ def _prepare_badge_image(png_bytes: bytes, *, deadline: float | None = None) -> 
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
     if not result.save(buffer, "PNG"):
         return None
-    return _PreparedGenes(bytes(buffer.data()), tuple(tuple(box[4] for box in row) for row in complete_rows), row_height)
+    glyphs = tuple(tuple(_glyph_signature(box[5]) for box in row) for row in complete_rows)
+    return _PreparedGenes(bytes(buffer.data()), tuple(tuple(box[4] for box in row) for row in complete_rows), row_height, glyphs)
 
 
 def _recognize_image_text(png_bytes: bytes, executable: Path, timeout: float) -> str:
@@ -616,42 +670,45 @@ def _screen_word_rows(words: object) -> tuple[tuple[float, str], ...]:
     return tuple(result)
 
 
-def _validated_colored_genes(text: str, prepared: _PreparedGenes) -> tuple[str, ...]:
-    """Reject a red G/Y/H or green W/X; never substitute another letter.
-
-    Screen row coordinates, rather than result order, keep a missing OCR row
-    from shifting every following seed onto the wrong color signature.
-    """
+def _prepared_text_rows(text: str, prepared: _PreparedGenes) -> dict[int, str]:
+    """Map OCR fragments back to their original prepared-image row indices."""
     rows = getattr(text, "rows", None)
     if rows is None:
-        # Windows returns word geometry. This fallback is also useful for
-        # alternate local engines/tests that retain one line per prepared row.
         lines = text.splitlines()
         if len(lines) != len(prepared.colors):
-            return ()
+            return {}
         rows = tuple(((0.5 + index) * prepared.row_height, line) for index, line in enumerate(lines))
-    # Ordinary screen text uses large gaps to separate different seed cards.
-    # The prepared image deliberately has exactly one seed per row, however,
-    # and its small badge letters can themselves exceed that gap threshold.
-    # Rejoin only fragments mapped to that same generated row.
+    # Unlike ordinary screenshot words, each generated row represents exactly
+    # one seed. Rejoin only fragments known to belong to that original row.
     fragments: dict[int, list[str]] = {}
     for center, line in rows:
         index = int(center // prepared.row_height)
         if 0 <= index < len(prepared.colors):
             fragments.setdefault(index, []).append(line)
-    found: list[str] = []
-    for index in sorted(fragments):
-        candidates = extract_gene_sequences(" ".join(fragments[index]))
-        if len(candidates) != 1:
+    return {index: " ".join(lines) for index, lines in fragments.items()}
+
+
+def _validated_colored_gene_rows(text: str, prepared: _PreparedGenes) -> dict[int, str]:
+    """Reject red G/Y/H and green W/X without losing the original row index."""
+    found: dict[int, str] = {}
+    for index, line in sorted(_prepared_text_rows(text, prepared).items()):
+        candidates = extract_gene_sequences(line)
+        if len(candidates) != 1 or len(prepared.colors[index]) != 6:
             continue
         genes = candidates[0]
         if all((1 if gene in "GYH" else 2) == color for gene, color in zip(genes, prepared.colors[index])):
-            found.append(genes)
-    return tuple(found)
+            found[index] = genes
+    return found
+
+
+def _validated_colored_genes(text: str, prepared: _PreparedGenes) -> tuple[str, ...]:
+    """Return color-checked genes in row order, keeping duplicate occurrences."""
+    rows = _validated_colored_gene_rows(text, prepared)
+    return tuple(rows[index] for index in sorted(rows))
 
 
 def recognize_gene_image(png_bytes: bytes, *, colored_only: bool = False) -> tuple[str, ...]:
-    """Recognize a local PNG through Windows OCR; never upload the image.
+    """Recognize a local PNG from glyph shapes, with Windows OCR as fallback.
 
     Returned sequences preserve repeated occurrences for the caller's review
     and deduplication. Recognition success with no valid genes returns ``()``.
@@ -665,30 +722,89 @@ def recognize_gene_image(png_bytes: bytes, *, colored_only: bool = False) -> tup
     if len(png_bytes) > _MAX_IMAGE_BYTES:
         raise OcrError("截图超过 32 MB，请缩小识别区域后重试。")
     deadline = time.monotonic() + _OCR_TIMEOUT_SECONDS
-    if colored_only:
-        prepared = _prepare_badge_image(png_bytes, deadline=deadline)
-        _check_deadline(deadline)
-        if prepared is None:
-            return ()
-        return _recognize_prepared(prepared, _powershell_path(), deadline)
-    executable = _powershell_path()
-    genes = extract_gene_sequences(_recognize_image_text(png_bytes, executable, _OCR_TIMEOUT_SECONDS))
-    # A valid alphabet alone cannot establish accuracy: OCR can misread a red
-    # W as a green-compatible H. Always inspect recognizable colored groups.
-    _check_deadline(deadline)
     prepared = _prepare_badge_image(png_bytes, deadline=deadline)
-    if prepared is None:
-        if time.monotonic() > deadline:
-            raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
-        return genes
-    return _recognize_prepared(prepared, executable, deadline)
+    _check_deadline(deadline)
+    if prepared is not None:
+        genes = _recognized_glyph_genes(prepared)
+        _check_deadline(deadline)
+        if genes is not None:
+            return genes
+        # The local text engine sees only the located six-position rows.
+        # Do not spend another process invocation on the original screenshot.
+        return _recognize_prepared(prepared, _powershell_path(), deadline)
+    if colored_only:
+        return ()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
+    genes = extract_gene_sequences(_recognize_image_text(png_bytes, _powershell_path(), remaining))
+    _check_deadline(deadline)
+    return genes
 
 
 def _recognize_prepared(prepared: _PreparedGenes, executable: Path, deadline: float) -> tuple[str, ...]:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
+    known = _recognized_glyph_gene_rows(prepared)
+    _check_deadline(deadline)
+    if len(known) == len(prepared.colors):
+        return tuple(known[index] for index in sorted(known))
     enhanced = _recognize_image_text(prepared.image, executable, remaining)
-    if time.monotonic() > deadline:
+    _check_deadline(deadline)
+    unknown = set(range(len(prepared.colors))) - known.keys()
+    fallback = _validated_colored_gene_rows(enhanced, prepared)
+    found = {**{index: genes for index, genes in fallback.items() if index in unknown}, **known}
+    complete_unknown = any(
+        index in unknown and extract_gene_sequences(line)
+        for index, line in _prepared_text_rows(enhanced, prepared).items()
+    )
+    if unknown.intersection(fallback) or complete_unknown:
+        # Complete but color-conflicting unknown rows stay rejected. Results
+        # for a confident shape row cannot replace it or hide another row.
+        return tuple(found[index] for index in sorted(found))
+    # Preserve all known rows even when Windows ignores one of them. Only an
+    # unreadable unknown row is eligible for the one existing raster retry.
+    retry = _rescale_prepared_for_retry(prepared, scale=0.75 if not enhanced.strip() else 1.25)
+    if retry is None:
+        return tuple(found[index] for index in sorted(found))
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
         raise OcrError("本地 OCR 识别超时，请缩小区域或稍后重试。")
-    return _validated_colored_genes(enhanced, prepared)
+    enhanced = _recognize_image_text(retry.image, executable, remaining)
+    _check_deadline(deadline)
+    fallback = _validated_colored_gene_rows(enhanced, retry)
+    found.update({index: genes for index, genes in fallback.items() if index in unknown})
+    return tuple(found[index] for index in sorted(found))
+
+
+def _rescale_prepared_for_retry(prepared: _PreparedGenes, *, scale: float = 1.25) -> _PreparedGenes | None:
+    """Retry unreadable small text at another size, without replacing glyphs.
+
+    Windows can miss a clear six-glyph row at a particular raster size. A
+    modest resampling recovers the real 125%-UI-scale detail strip while
+    retaining its original letter shapes, color signatures and row positions.
+    """
+    from PySide6.QtCore import QBuffer, QIODevice, Qt
+    from PySide6.QtGui import QImage
+
+    source = QImage.fromData(prepared.image, "PNG")
+    if source.isNull():
+        return None
+    # Prepared batches already stay below 2400 px. Do not make a tall batch
+    # exceed the Windows engine limit just to retry a missed small text row.
+    if max(source.width(), source.height()) * scale > 2400:
+        scale = 0.8
+    image = source.scaled(
+        round(source.width() * scale), round(source.height() * scale),
+        Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
+    )
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if image.isNull() or not image.save(buffer, "PNG"):
+        return None
+    return _PreparedGenes(
+        bytes(buffer.data()), prepared.colors,
+        prepared.row_height * image.height() / source.height(),
+        prepared.glyphs,
+    )
